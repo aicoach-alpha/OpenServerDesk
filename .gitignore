@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite*
+*.tar
+*.tar.gz
+*.deb
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+build/
+staging-root/
+*.log
