@@ -1,6 +1,7 @@
 """OpenServerDesk M1.5 staging-only, dependency-free read-only HTTP service."""
 import json
 import os
+from readiness import readiness
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VERSION = "0.1.0-dev"
@@ -17,6 +18,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self.respond(200, {"status":"ok","service":"openserverdesk","version":VERSION,"environment":"staging"})
+        if self.path == "/api/v1/migration/readiness":
+            return self.respond(200, readiness())
         if self.path == "/api/v1/capabilities":
             return self.respond(200, {"read_only":True,"migration_activation":False,"production_changes":False})
         return self.respond(404, {"error":"not_found"})
