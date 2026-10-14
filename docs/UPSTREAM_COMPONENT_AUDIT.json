@@ -1,0 +1,16 @@
+{
+  "CasaOS-Gateway": {
+    "go": "1.26.8",
+    "commit": "5434b2121d1940c76b1386befbd2039ab63b31c4",
+    "license_present": true,
+    "source_checked": true,
+    "build_tested": false
+  },
+  "CasaOS-UserService": {
+    "go": "1.26.8",
+    "commit": "576c2a05365f24b55f117c65dc901f118d719809",
+    "license_present": true,
+    "source_checked": true,
+    "build_tested": false
+  }
+}
