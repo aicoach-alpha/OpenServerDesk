@@ -10,5 +10,6 @@ for module in CasaOS-Gateway CasaOS-UserService; do
     --memory=1400m --cpus=2 --pids-limit=200 \
     --mount "type=bind,src=$source_dir,dst=/src,readonly" \
     --tmpfs /tmp:rw,nosuid,nodev,size=900m \
+    -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/gopath -e GOTOOLCHAIN=local -e GOPROXY=off \
     -w /src "$IMAGE" /bin/bash -ec 'go version; go test ./...'
 done
