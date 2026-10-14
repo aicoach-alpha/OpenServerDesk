@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 def readiness():
-    db=Path("/var/tmp/openserverdesk-migration-preflight.json")
+    db=Path("/run/openserverdesk/preflight.json")
     if not db.is_file():
         return {"status":"blocked","reason":"preflight_missing","migration_allowed":False}
     try:
