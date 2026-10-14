@@ -12,7 +12,7 @@ for module in CasaOS-Gateway CasaOS-UserService; do
     --mount "type=bind,src=$source_dir,dst=/src,readonly" \
     --mount "type=bind,src=$CACHE/mod,dst=/go/pkg/mod,readonly" \
     --mount "type=bind,src=$CACHE/build,dst=/tmp/go-build" \
-    --tmpfs /tmp:rw,nosuid,nodev,size=900m \
+    --tmpfs /tmp:rw,exec,nosuid,nodev,size=900m \
     -e GOCACHE=/tmp/go-build -e GOPATH=/go -e GOTOOLCHAIN=local -e GOPROXY=off \
     -w /src "$IMAGE" /bin/bash -ec 'go version; go test ./...'
 done
