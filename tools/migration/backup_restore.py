@@ -54,7 +54,7 @@ def rehearse(archive):
         manifest=json.loads((root/"manifest.json").read_text())
         for path,checksum in manifest.items():
             if digest(root/path)!=checksum:raise RuntimeError(f"hash mismatch {path}")
-        dbs=list((root/"var/lib/casaos/db").glob("*.db"))
+        dbs=[root/path for path in manifest if path.endswith(".db") and root.joinpath(path).is_file()]
         for db in dbs:
             with sqlite3.connect(db) as con:
                 if con.execute("PRAGMA integrity_check").fetchone()[0]!="ok":raise RuntimeError("invalid sqlite")
