@@ -75,6 +75,24 @@ def decide():
             "Current migration backup/restore does not cover full external "
             "app and Docker bind-mount data or Compose lifecycle."
         )
+    # Distinct-device recovery is mandatory: sources span the NAS drives
+    # including its large HDD; copying onto a drive containing any source
+    # does not count as an independent backup.
+    try:
+        from m1_storage_safety_gate import inspect as inspect_storage
+        storage = inspect_storage()
+        if not storage["independent_target"]["supplied"]:
+            blockers["independent_backup_destination"] = (
+                "No independently mounted backup destination is configured. "
+                "Real Docker/Compose data spans multiple NAS disks; an external "
+                "independent backup and full recovered-data proof are required."
+            )
+    except Exception:
+        storage = {"status":"storage_safety_gate_unavailable",
+                   "migration_allowed":False}
+        blockers["independent_backup_destination"] = (
+            "Source-disk isolation cannot be verified; fail closed."
+        )
     blockers["signed_release_and_security_acceptance"] = (
         "No validated signed production release or completed independent M1 "
         "security/pentest acceptance is supplied."
@@ -85,6 +103,7 @@ def decide():
         "candidate_package": PKG.name, "candidate_sha256": hashlib.sha256(PKG.read_bytes()).hexdigest(),
         "package_components": package_components, "existing_casaos_services": status,
         "running_docker_container_count": live_count,
+        "storage_safety":storage,
         "unmet_exit_criteria": blockers,
         "evidence": {
             "source": "GitHub aicoach-alpha/OpenServerDesk",
