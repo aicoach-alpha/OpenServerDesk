@@ -32,6 +32,8 @@ def save(src, dest):
 def recover(target):
     target = Path(target).resolve()
     journal = target / ".osd-undo"
+    if (target / ".osd-undo-preparing").exists():
+        raise RuntimeError("incomplete journal preparation; manual inspection required")
     if not journal.exists():
         return False
     manifest = json.loads((journal / "manifest.json").read_text())
@@ -56,8 +58,8 @@ def replace_pair(bundle, target):
     target = Path(target).resolve()
     if not target.is_dir() or target.is_symlink() or bundle == target:
         raise ValueError("isolated directories required")
-    if (target / ".osd-undo").exists():
-        raise RuntimeError("pending undo; recover first")
+    if (target / ".osd-undo").exists() or (target / ".osd-undo-preparing").exists():
+        raise RuntimeError("pending or incomplete undo; recover or inspect first")
     manifest = json.loads((bundle / "manifest.json").read_text())
     if set(manifest) != {"userservice", "user.db"}:
         raise ValueError("paired snapshot required")
@@ -69,15 +71,17 @@ def replace_pair(bundle, target):
     with sqlite3.connect(f"file:{bundle / 'user.db'}?mode=ro", uri=True) as db:
         if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise ValueError("invalid SQLite")
+    preparing = target / ".osd-undo-preparing"
     journal = target / ".osd-undo"
-    journal.mkdir(mode=0o700)
+    preparing.mkdir(mode=0o700)
     for name in ("userservice", "user.db"):
-        save(target / name, journal / name)
-    undo = {name: digest(journal / name) for name in ("userservice", "user.db")}
-    (journal / "manifest.json").write_text(json.dumps(undo))
-    with (journal / "manifest.json").open("rb") as f:
+        save(target / name, preparing / name)
+    undo = {name: digest(preparing / name) for name in ("userservice", "user.db")}
+    (preparing / "manifest.json").write_text(json.dumps(undo))
+    with (preparing / "manifest.json").open("rb") as f:
         os.fsync(f.fileno())
-    syncdir(journal)
+    syncdir(preparing)
+    os.replace(preparing, journal)
     syncdir(target)
     for name in ("userservice", "user.db"):
         tmp = target / (name + ".next")

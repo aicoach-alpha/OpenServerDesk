@@ -52,6 +52,30 @@ j.replace_pair(__import__('sys').argv[1], __import__('sys').argv[2])
             self.assertEqual((t / "userservice").read_bytes(), b"new-current")
             self.assertEqual((t / "user.db").read_bytes(), b"current-payload")
 
+    def test_crash_during_journal_preparation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            b, t = self.fixture(Path(d))
+            code = """
+import os
+import journaled_pair as j
+original = j.save
+def crash_after_first_copy(src, dest):
+    original(src, dest)
+    if str(dest).endswith('/.osd-undo-preparing/userservice'):
+        os._exit(72)
+j.save = crash_after_first_copy
+j.replace_pair(__import__('sys').argv[1], __import__('sys').argv[2])
+"""
+            process = subprocess.run([sys.executable, "-c", code, str(b), str(t)],
+                                     env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "tools" / "migration")})
+            self.assertEqual(process.returncode, 72)
+            self.assertEqual((t / "userservice").read_bytes(), b"new-current")
+            self.assertEqual((t / "user.db").read_bytes(), b"current-payload")
+            with self.assertRaises(RuntimeError):
+                recover(t)
+            with self.assertRaises(RuntimeError):
+                replace_pair(b, t)
+
     def test_corrupt_undo_denies_recovery(self):
         with tempfile.TemporaryDirectory() as d:
             b, t = self.fixture(Path(d))
