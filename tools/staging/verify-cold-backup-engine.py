@@ -46,9 +46,19 @@ try:
     }
     try:
         m.collect=lambda:data
-        preflight=m.plan()
+        preflight=m.plan(fixture_mode=True)
         assert preflight["cold_backup_authorized"] is True
-        created=m.cold_backup()
+        # This fixture shares a filesystem with the source. The REAL CLI
+        # must reject it; fixture_mode is Python-test-only, not a CLI flag.
+        assert m.plan()["cold_backup_authorized"] is False
+        try:
+            m.cold_backup()
+        except m.BackupRejected as exc:
+            assert "INDEPENDENT_BACKUP_TARGET_REQUIRED" in str(exc)
+        else:
+            raise AssertionError("same-device production backup accepted")
+        print("SAME_DEVICE_BACKUP_FAIL_CLOSED_PASS")
+        created=m.cold_backup(fixture_mode=True)
         assert created["sources"]==2
         verified=m.verify_bundle(created["id"])
         assert verified["verified_sources"]==2
@@ -91,7 +101,7 @@ try:
         assert (backup/"data/source-0001").read_text().startswith("services:")
         assert (backup/"data/source-0000/settings.txt").stat().st_ino == (backup/"data/source-0000/settings-hardlink.txt").stat().st_ino
         (one/"settings.txt").write_text("bad_release")
-        result=m.restore_to_staging(created["id"])
+        result=m.restore_to_staging(created["id"],fixture_mode=True)
         assert result["restored_sources"]==2
         assert (recovery/created["id"]/"data/source-0000/settings.txt").read_text()=="configuration-v1"
         assert (one/"settings.txt").read_text()=="bad_release"
@@ -106,7 +116,7 @@ try:
         escaping=one/"unsafe-link"
         escaping.symlink_to("/etc/passwd")
         try:
-            m.cold_backup()
+            m.cold_backup(fixture_mode=True)
         except m.BackupRejected as exc:
             assert "absolute symlink" in str(exc)
         else:
@@ -117,7 +127,7 @@ try:
         external=stage/"untracked-external-hardlink"
         os.link(one/"settings.txt",external)
         try:
-            m.cold_backup()
+            m.cold_backup(fixture_mode=True)
         except m.BackupRejected as exc:
             assert "hardlink crosses" in str(exc)
         else:
@@ -129,7 +139,7 @@ try:
         data["live_writable_mount_count"]=1
         assert m.plan()["cold_backup_authorized"] is False
         try:
-            m.cold_backup()
+            m.cold_backup(fixture_mode=True)
         except m.BackupRejected as exc:
             assert "COLD_BACKUP_BLOCKED" in str(exc)
         else:raise AssertionError("live container backup incorrectly accepted")

@@ -28,3 +28,17 @@ The demonstration does not authorize a live backup, production cutover or
 claim full consistency of all 40 real bind/Compose source paths. Other writers,
 disk capacity, real restore+service startup, full upstream integration,
 production-equivalent rollback, signing and security approval remain blocked.
+
+## Independent media enforcement
+
+Cold backup and restore operations now reject any destination whose filesystem
+device is also used by even one discovered real source. This applies to their
+real CLI operations and is checked before allocating or copying backup data.
+Even after all 16 Docker containers are quiesced, a local directory on the
+original NAS root, SSD, or HDD is not independently recoverable. The safe
+target must be a newly mounted independent disk or remote storage.
+
+The isolated regression explicitly proves SAME_DEVICE_BACKUP_FAIL_CLOSED_PASS.
+A Python-only fixture_mode argument supports disposable stage-only UAT but is
+NOT available in the production CLI, production web API, or release gate.
+No production application or file was modified.

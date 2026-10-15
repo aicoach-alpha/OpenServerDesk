@@ -113,8 +113,19 @@ def _paths_fresh():
     return report, files
 
 
-def plan():
+def _independent_disk(destination, sources):
+    # A backup on ANY filesystem that holds original source data is not
+    # independently recoverable if that source disk fails.
+    if destination.is_symlink() or not destination.is_dir():
+        return False
+    return destination.stat().st_dev not in {
+        os.stat(path).st_dev for path in sources
+    }
+
+
+def plan(*, fixture_mode=False):
     report, files = _paths_fresh()
+    independent = _independent_disk(BACKUPS, files)
     return {
         "plan_format": LABEL,
         "analyzed_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -125,8 +136,10 @@ def plan():
         "bind_source_count": report["unique_bind_source_count"],
         "additional_compose_sources": len(files)-report["unique_bind_source_count"],
         "total_unique_backup_sources": len(files),
+        "independent_backup_destination": independent,
         "cold_backup_authorized": (report["running_container_count"] == 0 and
-                                   report["live_writable_mount_count"] == 0),
+                                   report["live_writable_mount_count"] == 0 and
+                                   (independent or fixture_mode)),
         "production_modified": False,
         "actual_sources_excluded_from_public_report": True,
     }
@@ -213,7 +226,7 @@ def _same_source_data(before, copied):
     return relative(before) == relative(copied)
 
 
-def cold_backup():
+def cold_backup(*, fixture_mode=False):
     if os.geteuid() != 0:
         raise BackupRejected("cold backup requires dedicated privileged operator")
     report, files = _paths_fresh()
@@ -225,6 +238,8 @@ def cold_backup():
     _safe_dir(BACKUPS, STAGE)
     if BACKUPS.stat().st_mode & 0o077:
         raise BackupRejected("backup storage must be root private 0700")
+    if not fixture_mode and not _independent_disk(BACKUPS, files):
+        raise BackupRejected("INDEPENDENT_BACKUP_TARGET_REQUIRED")
     # Preflight dry-run disk estimate; refuse when unknown, too large or
     # insufficient. du can be slow on huge production trees, so fail closed.
     unique_sources = [Path(x) for x in files]
@@ -354,7 +369,7 @@ def verify_bundle(name):
             "production_modified":False}
 
 
-def restore_to_staging(name):
+def restore_to_staging(name, *, fixture_mode=False):
     """Recovery rehearsal into a NEW root-private staging destination ONLY."""
     result = verify_bundle(name)
     _safe_dir(STAGE)
@@ -362,6 +377,10 @@ def restore_to_staging(name):
     _safe_dir(RECOVERED, STAGE)
     if RECOVERED.stat().st_mode & 0o077:
         raise BackupRejected("recovery directory must be root private")
+    if not fixture_mode:
+        _report, actual_sources = _paths_fresh()
+        if not _independent_disk(RECOVERED, actual_sources):
+            raise BackupRejected("INDEPENDENT_RESTORE_TARGET_REQUIRED")
     dest = RECOVERED / name
     if dest.exists() or dest.is_symlink():
         raise BackupRejected("existing recovery directory cannot be overwritten")
