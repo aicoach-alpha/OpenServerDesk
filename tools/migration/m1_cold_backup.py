@@ -138,6 +138,81 @@ def _syncdir(folder):
     finally: os.close(fd)
 
 
+def _entry_metadata(node):
+    """Fingerprint ALL recoverable metadata including ACL-backed xattrs."""
+    st = node.lstat()
+    if stat.S_ISREG(st.st_mode):
+        out = {"type": "file", "size": st.st_size, "sha256": _sha256(node)}
+    elif stat.S_ISDIR(st.st_mode):
+        out = {"type": "directory"}
+    elif stat.S_ISLNK(st.st_mode):
+        out = {"type": "symlink", "target": os.readlink(node)}
+    else:
+        raise BackupRejected("special file is not recoverable")
+    out.update(mode=stat.S_IMODE(st.st_mode), uid=st.st_uid,
+               gid=st.st_gid, mtime_ns=st.st_mtime_ns)
+    try:
+        out["xattrs_sha256"] = {
+            name: hashlib.sha256(os.getxattr(
+                node, name, follow_symlinks=False)).hexdigest()
+            for name in sorted(os.listxattr(node, follow_symlinks=False))
+        }
+    except OSError as exc:
+        raise BackupRejected("cannot verify source ACL and xattrs") from exc
+    return out
+
+
+def _tree_rows(root, data_root):
+    if root.is_symlink() or not (root.is_file() or root.is_dir()):
+        raise BackupRejected("unsafe backup source root")
+    nodes = [root]
+    if root.is_dir():
+        nodes.extend(sorted(root.rglob("*")))
+    if len(nodes) > 100000:
+        raise BackupRejected("too many files in one backup source")
+    # A link to an inode OUTSIDE this tree cannot be reconstructed as a
+    # self-contained recovery source. cp -a should preserve internal links.
+    hardlinks = {}
+    for node in nodes:
+        st = node.lstat()
+        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+            key = (st.st_dev, st.st_ino)
+            hardlinks.setdefault(key, {"expected": st.st_nlink, "nodes": []})["nodes"].append(node)
+    identity = {}
+    for entry in hardlinks.values():
+        if len(entry["nodes"]) != entry["expected"]:
+            raise BackupRejected("hardlink crosses backup source boundary")
+        first = min(str(x.relative_to(root)) for x in entry["nodes"])
+        for node in entry["nodes"]:
+            identity[node] = first
+    result = []
+    for node in nodes:
+        row = {"rel": str(node.relative_to(data_root))}
+        row.update(_entry_metadata(node))
+        row["hardlink_ref"] = identity.get(node)
+        if row["type"] == "symlink":
+            if os.path.isabs(row["target"]):
+                raise BackupRejected("absolute symlink requires separate recovery plan")
+            resolved = (node.parent / row["target"]).resolve(strict=False)
+            if not resolved.is_relative_to(root.resolve(strict=True)):
+                raise BackupRejected("backup symlink escapes its source tree")
+        result.append(row)
+    return result
+
+
+def _same_source_data(before, copied):
+    # Both enumerations use different generated source-root directory names.
+    # Remove exactly the first path component and compare ALL remaining
+    # data and metadata for a byte-for-byte, metadata-for-metadata copy.
+    def relative(rows):
+        result = []
+        for item in rows:
+            first, sep, rest = item["rel"].partition("/")
+            result.append({**item, "rel": rest if sep else "."})
+        return result
+    return relative(before) == relative(copied)
+
+
 def cold_backup():
     if os.geteuid() != 0:
         raise BackupRejected("cold backup requires dedicated privileged operator")
@@ -180,27 +255,20 @@ def cold_backup():
             path = Path(src)
             dirname = f"source-{index:04d}"
             dst = data / dirname
-            # cp -a preserves symlinks, owner, permissions, timestamps,
-            # hard links *within one source*, extended attributes and ACLs.
+            # Validate input tree BEFORE copy; do not treat missing ACLs,
+            # external symlinks or unsupported special files as a success.
+            before = _tree_rows(path, path.parent)
+            # cp -a preserves owners, timestamps, hardlinks within each
+            # source, ACLs and xattrs; we verify that assumption explicitly.
             _run("cp", "-a", "--no-target-directory", "--", str(path), str(dst),
                  timeout=300)
             if not dst.exists() and not dst.is_symlink():
                 raise BackupRejected("copy missing from backup tree")
-            rows = []
-            for sub in [dst, *sorted(dst.rglob("*"))] if dst.is_dir() else [dst]:
-                st = sub.lstat()
-                if not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)
-                        or stat.S_ISLNK(st.st_mode)):
-                    raise BackupRejected("unsupported special file in backup")
-                rel = str(sub.relative_to(data))
-                if stat.S_ISREG(st.st_mode):
-                    rows.append({"rel":rel, "type":"file", "sha256":_sha256(sub),
-                                 "size":st.st_size})
-                elif stat.S_ISLNK(st.st_mode):
-                    rows.append({"rel":rel, "type":"symlink",
-                                 "target":os.readlink(sub)})
-                else:
-                    rows.append({"rel":rel, "type":"directory"})
+            rows = _tree_rows(dst, data)
+            if not _same_source_data(before, rows):
+                raise BackupRejected("backup lost data or filesystem metadata")
+            if _tree_rows(path, path.parent) != before:
+                raise BackupRejected("source data modified while copying")
             if sum(len(x["items"]) for x in manifest["sources"]) + len(rows) > 100000:
                 raise BackupRejected("excessive backup file entry count")
             manifest["sources"].append({"original_path":src, "copy_root":dirname,
@@ -230,38 +298,39 @@ def cold_backup():
 
 
 def _check_manifest_tree(data_root, raw):
-    count=0
-    for source in raw["sources"]:
-        dirname=source.get("copy_root")
-        if not re.fullmatch(r"source-\d{4}",str(dirname)):
-            raise BackupRejected("invalid backup source")
-        if not isinstance(source.get("items"), list):
-            raise BackupRejected("invalid backup manifest item list")
-        for item in source["items"]:
-            relative = Path(item["rel"])
-            if (relative.is_absolute() or ".." in relative.parts
-                    or relative.parts[0] != dirname):
-                raise BackupRejected("unsafe archive path")
-            p = data_root / relative
-            if not p.is_relative_to(data_root):
-                raise BackupRejected("unsafe archive path")
-            current = p.parent
-            while current != data_root:
-                if current.is_symlink():
-                    raise BackupRejected("unsafe symlinked archive parent")
-                current = current.parent
-            if item["type"] == "file":
-                if p.is_symlink() or _sha256(p) != item["sha256"] or p.stat().st_size != item["size"]:
-                    raise BackupRejected("backup hash mismatch")
-            elif item["type"] == "symlink":
-                if not p.is_symlink() or os.readlink(p) != item["target"]:
-                    raise BackupRejected("backup symlink mismatch")
-            elif item["type"] == "directory":
-                if p.is_symlink() or not p.is_dir():
-                    raise BackupRejected("backup directory mismatch")
-            else:
-                raise BackupRejected("unsupported backup entry")
-            count+=1
+    """Reconcile exact on-disk inventory against the complete manifest."""
+    if data_root.is_symlink() or not data_root.is_dir():
+        raise BackupRejected("unsafe backup data directory")
+    if set(raw) != {"format", "created_at_utc", "sources",
+                    "initial_live_container_count", "production_modified"}:
+        raise BackupRejected("invalid backup schema")
+    if raw["production_modified"] is not False or raw["initial_live_container_count"] != 0:
+        raise BackupRejected("not a quiesced backup")
+    entries = raw["sources"]
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 10000:
+        raise BackupRejected("invalid source list")
+    listed = set()
+    count = 0
+    for source in entries:
+        if not isinstance(source, dict) or set(source) != {
+                "original_path", "copy_root", "items"}:
+            raise BackupRejected("invalid manifest source")
+        dirname = source["copy_root"]
+        if not isinstance(dirname, str) or not re.fullmatch(r"source-\d{4}", dirname):
+            raise BackupRejected("invalid source folder")
+        if dirname in listed:
+            raise BackupRejected("duplicate source record")
+        listed.add(dirname)
+        if not isinstance(source["items"], list):
+            raise BackupRejected("invalid manifest items")
+        actual = _tree_rows(data_root / dirname, data_root)
+        if actual != source["items"]:
+            raise BackupRejected("missing, extra, corrupted or metadata-altered files")
+        count += len(actual)
+        if count > 100000:
+            raise BackupRejected("backup file count limit")
+    if {p.name for p in data_root.iterdir()} != listed:
+        raise BackupRejected("unlisted source in backup")
     return count
 
 
