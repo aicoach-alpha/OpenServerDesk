@@ -64,6 +64,18 @@ def copy_volume(source, target):
            "--entrypoint", "sh", BUSYBOX, "-ec", "cp -a /source/. /target/")
 
 
+
+def require_equal_volumes(source, target):
+    """Fail closed if any file contents or tree entries differ after copy."""
+    docker("run", "--rm", "--network", "none", "--read-only",
+           "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+           "--memory", "96m", "--pids-limit", "40",
+           "--mount", f"type=volume,src={source},dst=/source,readonly",
+           "--mount", f"type=volume,src={target},dst=/target,readonly",
+           "--entrypoint", "sh", BUSYBOX, "-ec",
+           "diff -r -q /source /target")
+
+
 def main():
     if command("dpkg-deb", "-f", str(PKG), "Package") != "openserverdesk-m1-candidate":
         raise RuntimeError("unexpected package")
@@ -181,6 +193,8 @@ def main():
             cleanup_containers()
             copy_volume(vol["us"], vol["ub"])
             copy_volume(vol["bs"], vol["bb"])
+            require_equal_volumes(vol["us"], vol["ub"])
+            require_equal_volumes(vol["bs"], vol["bb"])
             # Damage only the stopped disposable SOURCE database, not backups.
             docker("run", "--rm", "--network", "none", "--read-only",
                    "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -189,6 +203,8 @@ def main():
                    "printf 'corrupted fixture' > /fixture/user.db")
             copy_volume(vol["ub"], vol["ur"])
             copy_volume(vol["bb"], vol["br"])
+            require_equal_volumes(vol["ub"], vol["ur"])
+            require_equal_volumes(vol["bb"], vol["br"])
             start_stack(vol["ur"], vol["br"])
             wait_for(lambda: request(gw, "GET", "/v1/users/status")[1]["data"]["initialized"] is True,
                      "restored UserService")
