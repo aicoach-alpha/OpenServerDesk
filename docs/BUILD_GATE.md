@@ -12,3 +12,9 @@ This generates `codegen/user_service` from the pinned local OpenAPI specificatio
 `codegen/message_bus` from a tagged remote specification. Pin and verify both
 the generator and remote input before release; until then it remains a staging-only build.
 Do not generate files against production `/var/lib/casaos`, and do not commit upstream generated source without attribution review.
+
+## M1.5 latest
+UserService `go generate` completed successfully on 2026-10-15 in
+`/opt/openserverdesk-dev/work/CasaOS-UserService`. The build gate reads this
+generated staging copy when present. Gateway previously passed offline tests.
+Generated source is not copied to production or committed to this repository.
