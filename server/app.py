@@ -1,6 +1,7 @@
 """OpenServerDesk M1.5 staging-only, dependency-free read-only HTTP service."""
 import json
 import os
+import re
 from readiness import readiness
 from docker_readonly import inventory, InventoryUnavailable
 from stage_apps import authenticate as stage_auth, list_apps as stage_list, action as stage_action, AppError, enabled as stage_enabled
@@ -12,6 +13,13 @@ from stage_recovery import list_backups as stage_recovery_list, checkpoint as st
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VERSION = "0.6.5-staging"
+# Packaged builds inject this file so /health attests the running RELEASE
+# version, rather than a stale source-control developer version.
+_PACKAGED_VERSION = Path(__file__).resolve().parent / "release-version.txt"
+if _PACKAGED_VERSION.is_file() and not _PACKAGED_VERSION.is_symlink():
+    candidate = _PACKAGED_VERSION.read_text().strip()
+    if re.fullmatch(r"0\.6\.[0-9]+", candidate):
+        VERSION = candidate
 SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
 ALLOWED_SUMMARY_FIELDS = (
     "checked_at_utc", "container_count", "running_container_count",
