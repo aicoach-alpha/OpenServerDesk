@@ -15,7 +15,7 @@ An independent, community-oriented open-source project for an Ubuntu Server dash
 
 ## Present status
 The read-only migration preflight, backup/restore rehearsals and fail-closed
-installer gate are implemented. A staging-only Debian candidate (v0.6.6)
+installer gate are implemented. A staging-only Debian candidate (v0.6.7)
 now bundles pinned ReCasaOS Core, Gateway, UserService, MessageBus,
 AppManagement, LocalStorage and upstream dashboard UI. Its file installation and isolated Gateway serving the packaged upstream UI
 have passed. A separate OpenServerDesk-owned, functional read-only Docker
@@ -66,3 +66,5 @@ cutover is authorized or implemented; do not disable CasaOS.
 The hourly ChatGPT automation and the 15-minute NAS cron monitor were
 disabled at the owner's request on 2026-10-15. No continued automatic
 engineering is implied by an existing staging service.
+
+The v0.6.7 candidate adds gated cold Docker/Compose app-data backup and private isolated restore; see docs/M1_REAL_DATA_COLD_BACKUP_20261015.md.
