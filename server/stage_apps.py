@@ -21,6 +21,8 @@ STAGE = Path('/opt/openserverdesk-dev/runtime-stage/stage-app-manager')
 MARKER = Path('/opt/openserverdesk-dev/runtime-stage/.enable-stage-app-manager')
 MARKER_TEXT = 'OSD_STAGE_APP_MANAGER_V1\n'
 STAGING_IMAGE = 'busybox:latest'
+STAGE_STORAGE = STAGE / 'files'
+STAGE_CONTAINER_MOUNT = '/stage/files'
 ID_RE = re.compile(r'[a-f0-9]{64}\Z')
 NAME_RE = re.compile(r'osd-m1-owned-[a-f0-9]{12}\Z')
 
@@ -37,7 +39,8 @@ def enabled():
         return (stat.S_ISREG(st.st_mode) and st.st_uid == 0
                 and not st.st_mode & 0o022
                 and MARKER.read_text() == MARKER_TEXT
-                and STAGE.is_dir() and not STAGE.is_symlink())
+                and STAGE.is_dir() and not STAGE.is_symlink()
+                and STAGE_STORAGE.is_dir() and not STAGE_STORAGE.is_symlink())
     except OSError:
         return False
 
@@ -136,13 +139,23 @@ def inspect_owned(name, ident, owner):
     cfg = obj.get('Config') or {}
     host = obj.get('HostConfig') or {}
     labels = cfg.get('Labels') or {}
+    mounts = obj.get('Mounts') or []
+    # This is the ONLY allowed bind: strictly stage-owned text files mounted
+    # read-only, never a production source or Docker daemon socket.
+    storage_mount_ok = (len(mounts) == 1
+                        and mounts[0].get('Type') == 'bind'
+                        and mounts[0].get('Source') == str(STAGE_STORAGE)
+                        and mounts[0].get('Destination') == STAGE_CONTAINER_MOUNT
+                        and mounts[0].get('RW') is False)
     if (labels.get('osd.m1.managed') != 'stage-only'
             or labels.get('osd.m1.owner') != owner
+            or labels.get('osd.m1.storage') != 'stage-files-v1'
             or cfg.get('Image') != STAGING_IMAGE
+            or cfg.get('User') != '1000:1000'
             or host.get('Privileged') is not False
             or host.get('NetworkMode') != 'none'
             or host.get('PortBindings')
-            or obj.get('Mounts')
+            or not storage_mount_ok
             or host.get('Binds')):
         raise AppError('container_is_not_owned_isolated_stage_app', 403)
     state = obj.get('State') or {}
@@ -176,7 +189,11 @@ def action(op, name=None):
                            '--name', name,
                            '--label', 'osd.m1.managed=stage-only',
                            '--label', 'osd.m1.owner=' + reg['owner'],
+                           '--label', 'osd.m1.storage=stage-files-v1',
+                           '--mount', 'type=bind,src=' + str(STAGE_STORAGE)
+                                      + ',dst=' + STAGE_CONTAINER_MOUNT + ',readonly',
                            '--network', 'none', '--read-only',
+                           '--user', '1000:1000',
                            '--cap-drop', 'ALL',
                            '--security-opt', 'no-new-privileges',
                            '--memory', '64m', '--pids-limit', '32',

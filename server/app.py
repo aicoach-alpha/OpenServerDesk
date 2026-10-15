@@ -10,7 +10,7 @@ from urllib.parse import urlsplit, parse_qs
 from stage_storage import listing as stage_files_list, read as stage_file_read, perform as stage_file_action
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.6.3-staging"
+VERSION = "0.6.4-staging"
 SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
 ALLOWED_SUMMARY_FIELDS = (
     "checked_at_utc", "container_count", "running_container_count",

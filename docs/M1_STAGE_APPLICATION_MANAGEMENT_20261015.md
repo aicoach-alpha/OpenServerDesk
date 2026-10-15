@@ -49,3 +49,30 @@ on new installs of the inert candidate Debian package.
 
 The user requested the M1 automatic tasks disabled; the previous progress
 bar may show a historical 32% score but does not represent live work.
+
+## Staged real Docker application + LocalStorage integration
+
+The staged BusyBox process is now UID 1000:1000 and sees ONLY
+/opt/openserverdesk-dev/runtime-stage/stage-app-manager/files as a
+read-only bind at /stage/files, rather than a broad parent mount or raw
+production Docker volumes. Immutable owner/namespace/source/readonly/UID
+conditions are checked again before every container lifecycle mutation.
+
+A true live HTTP API integration scenario
+tools/staging/verify-integrated-stage-app-storage.py created a local staged
+file through authenticated LocalStorage, installed a real owner-labelled
+container through authenticated stage AppManagement, read the staged
+file from INSIDE the Docker container, and verified persistence after
+stop, start and restart. Writing from inside the stage container was denied
+by the read-only bind mount. Then the app and staged file were removed.
+Before/after sets of 16 existing Docker production container IDs matched.
+
+Observed:
+LIVE_AUTHENTICATED_APPMANAGEMENT_LOCALSTORAGE_INTEGRATION_PASS
+STAGED_STORAGE_PERSISTED_THROUGH_STOP_START_RESTART_PASS
+STAGED_APP_STORAGE_READ_ONLY_ENFORCED_PASS
+PRODUCTION_DOCKER_IDS_PRESERVED_PASS
+
+This closes the specific staging manager/storage integration deficit, but
+does NOT establish the separate full ReCasaOS AppManagement + LocalStorage
+production APIs, public UX security, or full production-equivalent release.
