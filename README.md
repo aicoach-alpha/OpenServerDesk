@@ -15,7 +15,7 @@ An independent, community-oriented open-source project for an Ubuntu Server dash
 
 ## Present status
 The read-only migration preflight, backup/restore rehearsals and fail-closed
-installer gate are implemented. A staging-only Debian candidate (v0.6.9)
+installer gate are implemented. A staging-only Debian candidate (v0.6.10)
 now bundles pinned ReCasaOS Core, Gateway, UserService, MessageBus,
 AppManagement, LocalStorage and upstream dashboard UI. Its file installation and isolated Gateway serving the packaged upstream UI
 have passed. A separate OpenServerDesk-owned, functional read-only Docker
@@ -80,3 +80,9 @@ integrity verification including ACL/xattr, hardlink graph, full-tree
 membership and external symlink fail-closed checks. See
 docs/M1_BACKUP_INTEGRITY_HARDENING_20261015.md. This does not authorize
 production migration.
+
+The v0.6.10 staging candidate packages the independent-device storage
+safety gate. Both actual cold backup and recovered-data publication reject
+destinations located on any filesystem containing the original Docker/Compose
+sources. See docs/M1_REAL_STORAGE_BLOCKER_20261015.md. Production migration
+remains blocked pending independent backup storage and further acceptance.
