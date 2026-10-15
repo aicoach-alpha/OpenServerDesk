@@ -76,6 +76,35 @@ j.replace_pair(__import__('sys').argv[1], __import__('sys').argv[2])
             with self.assertRaises(RuntimeError):
                 replace_pair(b, t)
 
+    def test_second_process_cannot_write_while_target_locked(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as d:
+            b, t = self.fixture(Path(d))
+            with open(t / ".osd-rollback.lock", "a+b") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                code = """
+import journaled_pair as j, sys
+try:
+    j.replace_pair(sys.argv[1], sys.argv[2])
+except RuntimeError as e:
+    sys.exit(0 if 'lock' in str(e) else 2)
+sys.exit(3)
+"""
+                proc = subprocess.run([sys.executable, "-c", code, str(b), str(t)],
+                    env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "tools" / "migration")})
+                self.assertEqual(proc.returncode, 0)
+                self.assertEqual((t / "userservice").read_bytes(), b"new-current")
+                self.assertEqual((t / "user.db").read_bytes(), b"current-payload")
+
+    def test_active_sqlite_wal_sidecar_blocks_replacement(self):
+        with tempfile.TemporaryDirectory() as d:
+            b, t = self.fixture(Path(d))
+            (t / "user.db-wal").write_bytes(b"synthetic pending frames")
+            with self.assertRaises(RuntimeError):
+                replace_pair(b, t)
+            self.assertEqual((t / "userservice").read_bytes(), b"new-current")
+            self.assertFalse((t / ".osd-undo").exists())
+
     def test_corrupt_undo_denies_recovery(self):
         with tempfile.TemporaryDirectory() as d:
             b, t = self.fixture(Path(d))
