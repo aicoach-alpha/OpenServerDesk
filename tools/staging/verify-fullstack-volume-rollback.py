@@ -10,6 +10,7 @@ import secrets
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -206,6 +207,8 @@ def main():
             require_equal_volumes(vol["ub"], vol["ur"])
             require_equal_volumes(vol["bb"], vol["br"])
             start_stack(vol["ur"], vol["br"])
+            if "--inject-restored-activation-failure" in sys.argv[1:]:
+                raise RuntimeError("INJECTED_RESTORED_ACTIVATION_FAILURE")
             wait_for(lambda: request(gw, "GET", "/v1/users/status")[1]["data"]["initialized"] is True,
                      "restored UserService")
             code, result = request(gw, "POST", "/v1/users/login", credential)
