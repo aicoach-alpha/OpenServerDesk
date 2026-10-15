@@ -4,9 +4,11 @@
 No host port, production service, existing Docker volume, or original staging
 container is touched. This deliberately does not activate a production release.
 """
+import fcntl
 import json
 import signal
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -15,6 +17,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import importlib.util
+recovery_file = Path(__file__).with_name("recover-fullstack-orphans.py")
+recovery_spec = importlib.util.spec_from_file_location("m1_orphan_recovery", recovery_file)
+recovery_module = importlib.util.module_from_spec(recovery_spec)
+recovery_spec.loader.exec_module(recovery_module)
+recover = recovery_module.recover
 
 STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
 PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
@@ -252,5 +261,27 @@ def main():
             print("ISOLATED_STACK_AND_VOLUMES_CLEANED_PASS", flush=True)
 
 
+def run_with_recovery():
+    # One running fixture orchestrator per staging area. SIGKILL releases flock.
+    lock_path = STAGE / ".osd-m1-fullstack.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("another M1 staging orchestrator is running") from exc
+        for journal in sorted(STAGE.glob("osd-m1-crash-*.json")):
+            match = re.fullmatch(r"osd-m1-crash-([a-f0-9]{14})\.json", journal.name)
+            if not match:
+                raise RuntimeError("unexpected recovery journal filename")
+            recover(match.group(1))
+        if "--recover-only" in sys.argv[1:]:
+            print("AUTOMATIC_RESTART_RECOVERY_PASS", flush=True)
+            return
+        main()
+    finally:
+        os.close(descriptor)
+
+
 if __name__ == "__main__":
-    main()
+    run_with_recovery()
