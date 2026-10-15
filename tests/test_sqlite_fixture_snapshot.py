@@ -46,6 +46,19 @@ class SQLiteSnapshotTests(unittest.TestCase):
                 snapshot(source, output)
             self.assertEqual(sentinel.read_text(), "unchanged")
 
+    def test_failed_backup_does_not_publish_incomplete_file(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source, dest = root / "src.db", root / "out.db"
+            with sqlite3.connect(source) as conn:
+                conn.execute("CREATE TABLE x(n INT)")
+            with patch("sqlite_fixture_snapshot.sqlite3.connect", side_effect=RuntimeError("injected IO failure")):
+                with self.assertRaises(RuntimeError):
+                    snapshot(source, dest)
+            self.assertFalse(dest.exists())
+            self.assertEqual(list(root.glob(".osd-sqlite-*")), [])
+
     def test_reject_same_source_and_destination(self):
         with tempfile.TemporaryDirectory() as d:
             db = Path(d)/"fixture.db"
