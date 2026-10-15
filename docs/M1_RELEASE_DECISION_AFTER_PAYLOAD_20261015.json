@@ -1,0 +1,41 @@
+{
+  "candidate_package": "openserverdesk-m1-candidate_0.5.0_amd64.deb",
+  "candidate_sha256": "775539166b4d9721d6b79062ab6ad28b2ad2f40885daa8003686fcf026fce75d",
+  "decision": "BLOCKED",
+  "evidence": {
+    "criteria": "docs/ROADMAP.md M1.5; README.md",
+    "production_changed": false,
+    "source": "GitHub aicoach-alpha/OpenServerDesk",
+    "staging_passes_preserved": true
+  },
+  "existing_casaos_services": {
+    "casaos": "active",
+    "casaos-app-management": "active",
+    "casaos-gateway": "active",
+    "casaos-local-storage": "active",
+    "casaos-message-bus": "active",
+    "casaos-user-service": "active"
+  },
+  "migration_allowed": false,
+  "milestone": "M1.5 full replacement",
+  "package_components": {
+    "api": true,
+    "api_unit": true,
+    "app_management": true,
+    "appfile2compose": true,
+    "core": true,
+    "full_product_dashboard": true,
+    "gateway": true,
+    "local_storage": true,
+    "message_bus": true,
+    "user_service": true
+  },
+  "running_docker_container_count": 16,
+  "safe_to_cutover": false,
+  "unmet_exit_criteria": {
+    "complete_activation_rollback_controller": "Migration installer explicitly reports activation/rollback not implemented.",
+    "external_bind_and_app_data_recovery": "Current migration backup/restore does not cover full external app and Docker bind-mount data or Compose lifecycle.",
+    "full_product_runtime_integration": "Full component payload packaged but Core, AppManagement and LocalStorage have not been safely booted and exercised together with the dashboard and persistence on an isolated stack.",
+    "signed_release_and_security_acceptance": "No validated signed production release or completed independent M1 security/pentest acceptance is supplied."
+  }
+}

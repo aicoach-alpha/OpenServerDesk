@@ -1,0 +1,46 @@
+{
+  "parent_release": "ReCasaOS/CasaOS-Install v0.5.27",
+  "release_date": "2026-10-13",
+  "assets": [
+    {
+      "repo": "CasaOS",
+      "tag": "v0.4.73",
+      "filename": "linux-amd64-casaos-v0.4.73.tar.gz",
+      "sha256": "9070d9efc89a48f299c03829a8ef59979d3c2913eb22aa866fbdd6b2b9d4da6a",
+      "executables": {
+        "casaos": "build/sysroot/usr/bin/casaos"
+      }
+    },
+    {
+      "repo": "CasaOS-AppManagement",
+      "tag": "v0.4.68",
+      "filename": "linux-amd64-casaos-app-management-v0.4.68.tar.gz",
+      "sha256": "c821dc00a9dc5b39d89286b06e186c4e98f268b3ce0f292f00812459065b0d1e",
+      "executables": {
+        "CasaOS-AppManagement": "build/sysroot/usr/bin/casaos-app-management",
+        "appfile2compose": "build/sysroot/usr/bin/appfile2compose"
+      }
+    },
+    {
+      "repo": "CasaOS-LocalStorage",
+      "tag": "v0.4.44",
+      "filename": "linux-amd64-casaos-local-storage-v0.4.44.tar.gz",
+      "sha256": "fc3399e5e4662d7fc6c3bfd2b91234e55323791f351ceabc0f783f1d40bf0d98",
+      "executables": {
+        "CasaOS-LocalStorage": "build/sysroot/usr/bin/casaos-local-storage"
+      }
+    },
+    {
+      "repo": "CasaOS-UI",
+      "tag": "v0.4.87",
+      "filename": "linux-all-casaos-v0.4.87.tar.gz",
+      "sha256": "114a86e25af790d12747613602b9901e74be105d3b8cfce03ff7e7c0f132ec66",
+      "executables": {}
+    }
+  ],
+  "existing_staging_binaries": {
+    "CasaOS-Gateway": "146368f9e2020dc997d0e676baba446fa8fff7a43449426b338b56a94107ebac",
+    "CasaOS-MessageBus": "314940b90ea7e40440c6e8f31429a6952a5de3cb4c52ab49755e4703d254dde1",
+    "CasaOS-UserService": "c3e8ddfda44c696f56c8577b09a5c50fc30022c4a29679d57c9902a75c16aafa"
+  }
+}

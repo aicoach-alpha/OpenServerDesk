@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.4.0_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -31,6 +31,8 @@ def decide():
         raise RuntimeError("package metadata unavailable")
     files = contents.stdout
     package_components = {
+        "core": "./usr/lib/openserverdesk/bin/casaos" in files,
+        "appfile2compose": "./usr/lib/openserverdesk/bin/appfile2compose" in files,
         "gateway": "./usr/lib/openserverdesk/bin/CasaOS-Gateway" in files,
         "message_bus": "./usr/lib/openserverdesk/bin/CasaOS-MessageBus" in files,
         "user_service": "./usr/lib/openserverdesk/bin/CasaOS-UserService" in files,
@@ -51,8 +53,13 @@ def decide():
     blockers = {}
     if not all(package_components.values()):
         blockers["full_product_payload"] = (
-            "Package lacks application management/local storage/dashboard, "
-            "which are required by M1.5 full runnable replacement."
+            "Candidate package is missing one or more essential product components."
+        )
+    else:
+        blockers["full_product_runtime_integration"] = (
+            "Full component payload packaged but Core, AppManagement and "
+            "LocalStorage have not been safely booted and exercised together "
+            "with the dashboard and persistence on an isolated stack."
         )
     if '"activation_implemented":False' in installer or '"rollback_implemented":False' in installer:
         blockers["complete_activation_rollback_controller"] = (

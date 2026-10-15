@@ -14,10 +14,14 @@ An independent, community-oriented open-source project for an Ubuntu Server dash
 - Signed OTA updates, app backup and verified restoration
 
 ## Present status
-Only **read-only migration preflight, configuration backup, staging restore rehearsal,
-and fail-closed installer gate** are implemented. A development-only Debian package
-has been install/upgrade/downgrade tested in an isolated dpkg staging root.
-No production migration, full dashboard, Docker updater, GPU installer or OTA is available yet.
+The read-only migration preflight, backup/restore rehearsals and fail-closed
+installer gate are implemented. A staging-only Debian candidate (v0.5.0)
+now bundles pinned ReCasaOS Core, Gateway, UserService, MessageBus,
+AppManagement, LocalStorage and upstream dashboard UI. Its file installation
+and isolated Gateway serving the packaged UI have passed. This does **not**
+mean that the six services are integrated, that the dashboard is fully
+functional, or that production cutover, full recovery, security release
+approval, Docker updater, GPU installer or OTA are available.
 
 Do not run a migration on a live CasaOS installation with this prototype.
 
