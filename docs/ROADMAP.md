@@ -1,7 +1,11 @@
 # Release gates
 Major -> minor: implement, focused test, deploy DEV, post-deploy verify; upon full major deployment, integration verification, security assessment and scoped pentest, then PASS or fix.
 
-## M1 Foundation (in progress)
+## M1 Foundation (in progress; final acceptance BLOCKED 2026-10-15)
+
+The reproducible final release decision and exact blockers are in
+`docs/M1_FINAL_ACCEPTANCE_20261015.md`. Existing staging PASS results do
+not imply full M1 release. Keep `migration_allowed=false`.
 - M1.1 GitHub public repository: created; initial publish pending commit
 - M1.2 CasaOS v0.4.15 read-only compatibility inventory: PASS dev
 - M1.3 CasaOS settings/SQLite backup and restore rehearsal: PASS dev (not full application restore)

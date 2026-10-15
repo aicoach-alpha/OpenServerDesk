@@ -52,8 +52,23 @@ def rehearse(archive):
                         raise ValueError("unsafe symlink")
             tar.extractall(root,filter="data")
         manifest=json.loads((root/"manifest.json").read_text())
+        if not isinstance(manifest,dict):
+            raise ValueError("invalid backup manifest")
+        actual={str(p.relative_to(root)) for p in root.rglob("*")
+                if p.is_file() and not p.is_symlink() and p!=root/"manifest.json"}
+        if set(manifest)!=actual:
+            raise ValueError("backup manifest does not cover exactly the archived files")
         for path,checksum in manifest.items():
-            if digest(root/path)!=checksum:raise RuntimeError(f"hash mismatch {path}")
+            rel=Path(path)
+            if (not isinstance(path,str) or rel.is_absolute() or not path or
+                    "." in rel.parts or ".." in rel.parts or
+                    not isinstance(checksum,str) or len(checksum)!=64 or
+                    any(ch not in "0123456789abcdef" for ch in checksum)):
+                raise ValueError("invalid backup manifest entry")
+            target=root/rel
+            if target.is_symlink() or not target.resolve().is_relative_to(root):
+                raise ValueError("unsafe backup manifest entry")
+            if digest(target)!=checksum:raise RuntimeError(f"hash mismatch {path}")
         dbs=[root/path for path in manifest if path.endswith(".db") and root.joinpath(path).is_file()]
         for db in dbs:
             with sqlite3.connect(db) as con:

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""One consolidated, read-only M1 final acceptance decision.
+
+Does not upgrade, migrate, stop, delete or alter CasaOS, Docker workloads,
+existing package services, data volumes or system service units.
+"""
+import argparse
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.4.0_amd64.deb")
+CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
+        "casaos-local-storage", "casaos-message-bus"]
+
+
+def command(*args):
+    return subprocess.run(args, capture_output=True, text=True, timeout=20)
+
+
+def decide():
+    if not PKG.is_file():
+        raise RuntimeError("candidate package missing")
+    contents = command("dpkg-deb", "--contents", str(PKG))
+    if contents.returncode:
+        raise RuntimeError("package contents cannot be inspected")
+    control = command("dpkg-deb", "--field", str(PKG), "Package", "Version")
+    if control.returncode:
+        raise RuntimeError("package metadata unavailable")
+    files = contents.stdout
+    package_components = {
+        "gateway": "./usr/lib/openserverdesk/bin/CasaOS-Gateway" in files,
+        "message_bus": "./usr/lib/openserverdesk/bin/CasaOS-MessageBus" in files,
+        "user_service": "./usr/lib/openserverdesk/bin/CasaOS-UserService" in files,
+        "api": "./usr/lib/openserverdesk/server/app.py" in files,
+        "api_unit": "./usr/lib/systemd/system/openserverdesk-m1-candidate.service" in files,
+        "app_management": "CasaOS-AppManagement" in files,
+        "local_storage": "CasaOS-LocalStorage" in files,
+        "full_product_dashboard": "./usr/share/openserverdesk/www/index.html" in files,
+    }
+    installer = (ROOT/"tools/migration/migrate_installer.py").read_text()
+    status = {unit: command("systemctl", "is-active", unit).stdout.strip() for unit in CORE}
+    docker_ps = command("docker", "ps", "--format", "{{.ID}}")
+    if docker_ps.returncode:
+        raise RuntimeError("Docker read-only inventory failed")
+    live_count = len([line for line in docker_ps.stdout.splitlines() if line])
+    # This is a data-preservation blocker, not an assumption that all Docker
+    # stacks could be safely replaced with the existing three binaries.
+    blockers = {}
+    if not all(package_components.values()):
+        blockers["full_product_payload"] = (
+            "Package lacks application management/local storage/dashboard, "
+            "which are required by M1.5 full runnable replacement."
+        )
+    if '"activation_implemented":False' in installer or '"rollback_implemented":False' in installer:
+        blockers["complete_activation_rollback_controller"] = (
+            "Migration installer explicitly reports activation/rollback not implemented."
+        )
+    if "external_hdd_copied" in (ROOT/"tools/migration/backup_restore.py").read_text():
+        blockers["external_bind_and_app_data_recovery"] = (
+            "Current migration backup/restore does not cover full external "
+            "app and Docker bind-mount data or Compose lifecycle."
+        )
+    blockers["signed_release_and_security_acceptance"] = (
+        "No validated signed production release or completed independent M1 "
+        "security/pentest acceptance is supplied."
+    )
+    return {
+        "milestone": "M1.5 full replacement", "decision": "BLOCKED" if blockers else "PASS",
+        "migration_allowed": False, "safe_to_cutover": False,
+        "candidate_package": PKG.name, "candidate_sha256": hashlib.sha256(PKG.read_bytes()).hexdigest(),
+        "package_components": package_components, "existing_casaos_services": status,
+        "running_docker_container_count": live_count,
+        "unmet_exit_criteria": blockers,
+        "evidence": {
+            "source": "GitHub aicoach-alpha/OpenServerDesk",
+            "criteria": "docs/ROADMAP.md M1.5; README.md",
+            "staging_passes_preserved": True,
+            "production_changed": False,
+        },
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--report", type=Path)
+    args = ap.parse_args()
+    result = decide()
+    encoded = json.dumps(result, sort_keys=True, indent=2) + "\n"
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(encoded)
+    print(encoded)
+    raise SystemExit(0 if result["decision"] == "PASS" else 2)
+
+
+if __name__ == "__main__":
+    main()
