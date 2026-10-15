@@ -7,9 +7,26 @@ import http.client
 import json
 import os
 import socket
+import stat
 from pathlib import Path
 
 SOCKET = Path("/var/run/docker.sock")
+STAGING_OPT_IN = Path("/opt/openserverdesk-dev/runtime-stage/.enable-docker-inventory")
+STAGING_OPT_IN_CONTENT = "OSD_STAGING_DOCKER_INVENTORY_V1\n"
+
+def _inventory_opted_in():
+    if os.environ.get("OSD_DOCKER_READ_ONLY") == "1":
+        return True
+    # Operator-owned stage marker, not a service-unit change. Reject symlink,
+    # group/world writable marker and unexpected contents (fail closed).
+    try:
+        meta = STAGING_OPT_IN.lstat()
+        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+            return False
+        return STAGING_OPT_IN.read_text() == STAGING_OPT_IN_CONTENT
+    except (OSError, UnicodeError):
+        return False
+
 
 
 class InventoryUnavailable(RuntimeError):
@@ -46,7 +63,7 @@ def _read(path):
 
 
 def inventory():
-    if os.environ.get("OSD_DOCKER_READ_ONLY") != "1":
+    if not _inventory_opted_in():
         raise InventoryUnavailable("Docker inventory is disabled")
     raw = json.loads(_read("/containers/json?all=1"))
     if not isinstance(raw, list) or len(raw) > 10000:

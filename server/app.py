@@ -6,7 +6,15 @@ from docker_readonly import inventory, InventoryUnavailable
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.0-dev"
+VERSION = "0.3.0-dev"
+SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
+ALLOWED_SUMMARY_FIELDS = (
+    "checked_at_utc", "container_count", "running_container_count",
+    "compose_project_count", "unique_bind_source_count",
+    "referenced_named_volume_count", "binds_requiring_operator_review",
+    "live_writable_mount_count", "migration_allowed",
+    "production_modified", "data_coverage_status",
+)
 UI = Path(__file__).resolve().parent / "ui"
 class Handler(BaseHTTPRequestHandler):
     def respond(self, status, data):
@@ -43,6 +51,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if self.path == "/api/v1/migration/data-coverage":
+            try:
+                if SUMMARY.is_symlink() or SUMMARY.stat().st_size > 4096:
+                    raise ValueError("bad summary file")
+                raw = json.loads(SUMMARY.read_text())
+                if (set(raw) != set(ALLOWED_SUMMARY_FIELDS)
+                        or raw["migration_allowed"] is not False
+                        or raw["production_modified"] is not False):
+                    raise ValueError("bad summary schema")
+                return self.respond(200, {key: raw[key] for key in ALLOWED_SUMMARY_FIELDS})
+            except (OSError, ValueError, TypeError):
+                return self.respond(503, {"error": "migration_coverage_unavailable"})
         if self.path == "/api/v1/docker/containers":
             try:
                 return self.respond(200, inventory())

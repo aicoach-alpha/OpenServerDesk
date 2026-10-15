@@ -36,3 +36,21 @@ async function refresh() {
 }
 $("refresh").addEventListener("click", refresh);
 refresh();
+
+async function coverage() {
+  try {
+    const result = await fetch("/api/v1/migration/data-coverage", {cache: "no-store"});
+    if (!result.ok) throw Error("Coverage assessment unavailable ("+result.status+")");
+    const data = await result.json();
+    $("bind-sources").textContent = data.unique_bind_source_count;
+    $("writable-mounts").textContent = data.live_writable_mount_count;
+    $("named-volumes").textContent = data.referenced_named_volume_count;
+    $("coverage-message").textContent =
+      "Inventory snapshot: " + new Date(data.checked_at_utc).toLocaleString() +
+      " · Real data backup, restore and cutover not yet verified.";
+    $("coverage-status").textContent = "Migration blocked";
+  } catch(err) {
+    $("coverage-message").textContent = err.message;
+  }
+}
+coverage();

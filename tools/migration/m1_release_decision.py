@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.1_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
