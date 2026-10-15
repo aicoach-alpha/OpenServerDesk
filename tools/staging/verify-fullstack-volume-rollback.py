@@ -5,6 +5,7 @@ No host port, production service, existing Docker volume, or original staging
 container is touched. This deliberately does not activate a production release.
 """
 import json
+import signal
 import os
 import secrets
 import shlex
@@ -118,7 +119,7 @@ def main():
             "UserDataPath=/var/lib/osd-user\n")
 
         def start_stack(uvol, bvol):
-            docker("run", "-d", "--name", gw, "--network", "none",
+            docker("run", "-d", "--name", gw, "--label", "osd.m1.fixture=true", "--label", f"osd.m1.owner={token}", "--network", "none",
                    "--read-only", "--cap-drop", "ALL",
                    "--security-opt", "no-new-privileges", "--memory", "240m",
                    "--pids-limit", "100", "--tmpfs", "/tmp:rw,nosuid,nodev,size=16m",
@@ -131,7 +132,7 @@ def main():
                    "-w", "/var/lib/casaos/www")
             wait_for(lambda: bool(docker("exec", gw, "curl", "-fsS",
                                         "http://127.0.0.1:18701/ping")), "gateway ping")
-            docker("run", "-d", "--name", bus,
+            docker("run", "-d", "--name", bus, "--label", "osd.m1.fixture=true", "--label", f"osd.m1.owner={token}",
                    "--network", "container:" + gw,
                    "--read-only", "--cap-drop", "ALL",
                    "--security-opt", "no-new-privileges", "--memory", "240m",
@@ -144,7 +145,7 @@ def main():
                    "--entrypoint", "/usr/local/bin/bus", IMAGE,
                    "-c", "/etc/casaos/message-bus.conf")
             wait_for(lambda: (temp / "run/message-bus.url").exists(), "bus URL")
-            docker("run", "-d", "--name", user,
+            docker("run", "-d", "--name", user, "--label", "osd.m1.fixture=true", "--label", f"osd.m1.owner={token}",
                    "--network", "container:" + gw,
                    "--read-only", "--cap-drop", "ALL",
                    "--security-opt", "no-new-privileges", "--memory", "240m",
@@ -157,14 +158,29 @@ def main():
                    "--entrypoint", "/usr/local/bin/userservice", IMAGE,
                    "-c", "/etc/casaos/user-service.conf", "-db", "/var/lib/osd-user")
 
+        journal = STAGE / ("osd-m1-crash-" + token + ".json")
+        state = {"token": token, "containers": [gw, bus, user],
+                 "volumes": list(vol.values()), "scratch": str(temp)}
+        with journal.open("x") as out:
+            json.dump(state, out)
+            out.flush()
+            os.fsync(out.fileno())
+        fd = os.open(STAGE, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
         try:
             for v in vol.values():
                 if subprocess.run(["docker", "volume", "inspect", v],
                                   capture_output=True, timeout=10).returncode == 0:
                     raise RuntimeError("refusing pre-existing volume")
-                docker("volume", "create", "--label", "osd.m1.fixture=true", v)
+                docker("volume", "create", "--label", "osd.m1.fixture=true", "--label", f"osd.m1.owner={token}", v)
                 created.append(v)
             start_stack(vol["us"], vol["bs"])
+            if "--inject-sigkill-after-start" in sys.argv[1:]:
+                print("CRASH_INJECTED_TOKEN=" + token, flush=True)
+                os.kill(os.getpid(), signal.SIGKILL)
             # Isolated API: register and authenticate one synthetic account.
             wait_for(lambda: request(gw, "GET", "/v1/users/status")[1]["data"]["initialized"] is False,
                      "first UserService")
@@ -232,6 +248,7 @@ def main():
                 if label != "true":
                     raise RuntimeError("refusing to remove volume without fixture label")
                 docker("volume", "rm", v)
+            journal.unlink()
             print("ISOLATED_STACK_AND_VOLUMES_CLEANED_PASS", flush=True)
 
 
