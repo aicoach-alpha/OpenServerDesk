@@ -29,6 +29,8 @@ def decide():
     control = command("dpkg-deb", "--field", str(PKG), "Package", "Version")
     if control.returncode:
         raise RuntimeError("package metadata unavailable")
+    if control.stdout.splitlines() != ["openserverdesk-m1-candidate", "0.6.2"]:
+        raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {
         "core": "./usr/lib/openserverdesk/bin/casaos" in files,

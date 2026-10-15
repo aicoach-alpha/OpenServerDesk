@@ -42,7 +42,7 @@ def main():
         control = tree/"DEBIAN"
         control.mkdir()
         (control/"control").write_text(
-            "Package: openserverdesk-m1-candidate\nVersion: 0.6.1\n"
+            "Package: openserverdesk-m1-candidate\nVersion: 0.6.2\n"
             "Section: admin\nPriority: optional\nArchitecture: amd64\n"
             "Maintainer: OpenServerDesk staging <staging@example.invalid>\n"
             "Description: Full component staging payload with read-only Docker inventory UI\n"
