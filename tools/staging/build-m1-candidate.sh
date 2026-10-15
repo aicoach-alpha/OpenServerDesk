@@ -3,12 +3,13 @@ set -euo pipefail
 ROOT=/home/andre/openserverdesk
 BIN=/opt/openserverdesk-dev/bin
 OUT=/opt/openserverdesk-dev/build
+VERSION=0.4.0
 STAGE=$(mktemp -d /opt/openserverdesk-dev/runtime-stage/m1-package-XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/lib/openserverdesk/bin" "$STAGE/usr/lib/openserverdesk/server" "$STAGE/usr/share/doc/openserverdesk-m1-candidate"
+mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/lib/openserverdesk/bin" "$STAGE/usr/lib/openserverdesk/server" "$STAGE/usr/lib/systemd/system" "$STAGE/usr/share/doc/openserverdesk-m1-candidate"
 cat > "$STAGE/DEBIAN/control" <<'EOF'
 Package: openserverdesk-m1-candidate
-Version: 0.3.0
+Version: 0.4.0
 Section: admin
 Priority: optional
 Architecture: amd64
@@ -20,6 +21,31 @@ for item in CasaOS-Gateway CasaOS-MessageBus CasaOS-UserService; do
 done
 install -m 0644 "$ROOT/server/app.py" "$STAGE/usr/lib/openserverdesk/server/app.py"
 install -m 0644 "$ROOT/server/readiness.py" "$STAGE/usr/lib/openserverdesk/server/readiness.py"
-echo 'NON-ACTIVATING STAGING PAYLOAD: no service setup, no production migration.' > "$STAGE/usr/share/doc/openserverdesk-m1-candidate/README"
-dpkg-deb --build --root-owner-group "$STAGE" "$OUT/openserverdesk-m1-candidate_0.3.0_amd64.deb" >/dev/null
-sha256sum "$OUT/openserverdesk-m1-candidate_0.3.0_amd64.deb"
+cat > "$STAGE/usr/lib/systemd/system/openserverdesk-m1-candidate.service" <<'EOF'
+[Unit]
+Description=OpenServerDesk M1 candidate read-only API (opt-in staging)
+After=network.target
+[Service]
+Type=simple
+DynamicUser=yes
+Environment=OSD_HOST=127.0.0.1
+Environment=OSD_PORT=18692
+ExecStart=/usr/bin/python3 -B /usr/lib/openserverdesk/server/app.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+EOF
+echo 'STAGING API UNIT SUPPLIED BUT NOT AUTO-ENABLED. No service hooks; no production migration.' > "$STAGE/usr/share/doc/openserverdesk-m1-candidate/README"
+dpkg-deb --build --root-owner-group "$STAGE" "$OUT/openserverdesk-m1-candidate_${VERSION}_amd64.deb" >/dev/null
+sha256sum "$OUT/openserverdesk-m1-candidate_${VERSION}_amd64.deb"
