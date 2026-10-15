@@ -29,6 +29,9 @@ def save(src, dest):
         shutil.copyfileobj(inp, out)
         out.flush()
         os.fsync(out.fileno())
+    os.chmod(dest, os.stat(src).st_mode & 0o777)
+    with open(dest, "rb") as stored:
+        os.fsync(stored.fileno())
 
 
 @contextmanager
