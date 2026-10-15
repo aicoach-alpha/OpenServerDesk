@@ -27,6 +27,11 @@ updater, GPU installer or OTA are available. An isolated, multi-project
 app-data/Compose backup and restore tool is packaged for **staging-only**
 rehearsals, with real Docker quiescence checks but no production cutover.
 
+Read-only M1 acceptance progress is visible in staging /ui with 9 weighted
+proof gates and 15-minute host-side status history (see
+docs/M1_PROGRESS_MONITOR_20261015.md). The score tracks accepted milestone
+scope, not remaining time; it does NOT automatically increase every interval.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout

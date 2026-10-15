@@ -4,6 +4,7 @@ import os
 from readiness import readiness
 from docker_readonly import inventory, InventoryUnavailable
 from pathlib import Path
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 VERSION = "0.3.0-dev"
@@ -16,6 +17,17 @@ ALLOWED_SUMMARY_FIELDS = (
     "production_modified", "data_coverage_status",
 )
 UI = Path(__file__).resolve().parent / "ui"
+PROGRESS = Path("/opt/openserverdesk-dev/runtime-stage/progress/latest.json")
+PROGRESS_HISTORY = Path("/opt/openserverdesk-dev/runtime-stage/progress/history.jsonl")
+PROGRESS_FIELDS = {
+    "schema_version", "checked_at_utc", "checked_at_wib", "metric",
+    "progress_percent", "milestones", "git_sha", "git_commit_at",
+    "git_message", "tracked_working_tree_dirty", "package_version",
+    "staging_http", "docker_count", "compose_count",
+    "production_service_status", "migration_allowed", "migration_reason",
+    "next_priority", "delta_percent_since_previous", "milestone_change_note",
+    "new_git_commit_since_previous",
+}
 class Handler(BaseHTTPRequestHandler):
     def respond(self, status, data):
         payload = json.dumps(data).encode()
@@ -51,6 +63,41 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if self.path == "/api/v1/m1/progress":
+            try:
+                if PROGRESS.is_symlink() or PROGRESS.stat().st_size > 32768:
+                    raise ValueError("unsafe progress snapshot")
+                report = json.loads(PROGRESS.read_text())
+                if (set(report) != PROGRESS_FIELDS
+                        or report["schema_version"] != 1
+                        or report["metric"] != "weighted_scope_accepted_not_time_estimate"
+                        or type(report["progress_percent"]) is not int
+                        or not 0 <= report["progress_percent"] <= 100
+                        or len(report["milestones"]) != 9
+                        or report["migration_allowed"] is not False
+                        or not all(isinstance(x, dict) and
+                                   set(x) == {"id","label","weight_percent",
+                                              "verified","evidence_class"}
+                                   for x in report["milestones"])):
+                    raise ValueError("invalid or untrusted progress snapshot")
+                return self.respond(200, report)
+            except (OSError, ValueError, TypeError, KeyError):
+                return self.respond(503, {"error": "m1_progress_unavailable"})
+        if self.path == "/api/v1/m1/progress/history":
+            try:
+                if PROGRESS_HISTORY.is_symlink() or not PROGRESS_HISTORY.is_file():
+                    raise ValueError("missing report history")
+                with PROGRESS_HISTORY.open() as stream:
+                    lines = deque(stream, maxlen=96)
+                if any(len(line) > 4096 for line in lines):
+                    raise ValueError("invalid report line")
+                return self.respond(200, {
+                    "cadence_minutes": 15,
+                    "scope": "host_generated_snapshots_not_chat_notifications",
+                    "entries": [json.loads(line) for line in lines],
+                })
+            except (OSError, ValueError, TypeError):
+                return self.respond(503, {"error": "m1_progress_history_unavailable"})
         if self.path == "/api/v1/migration/data-coverage":
             try:
                 if SUMMARY.is_symlink() or SUMMARY.stat().st_size > 4096:

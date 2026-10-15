@@ -6,3 +6,12 @@ main{padding:30px clamp(18px,5vw,80px)}.stats{display:grid;grid-template-columns
 @media(max-width:700px){header{align-items:start;flex-direction:column}.stats{grid-template-columns:1fr}.toolbar{flex-direction:column;align-items:start}}
 
 .coverage-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:18px;gap:15px;border-top:1px solid #2a3b52}.coverage-grid span{display:block;color:#9abbd6;font-size:13px}.coverage-grid strong{font-size:26px;display:block;margin-top:6px}@media(max-width:700px){.coverage-grid{grid-template-columns:1fr}}
+
+.progress-panel{margin-bottom:24px}.progress-content{padding:0 22px 20px}
+.progress-number{font-size:36px;font-variant-numeric:tabular-nums}
+#m1-progress{width:100%;height:21px;accent-color:#63b4ef;display:block}
+.milestone-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:20px 0}
+.milestone{border:1px solid #2b4058;border-radius:9px;padding:12px;font-size:13px}
+.milestone span{display:inline}.milestone small{display:block;color:#95a4b8;margin-top:5px}
+.progress-content h3{font-size:15px;margin-top:24px}
+@media(max-width:700px){.milestone-grid{grid-template-columns:1fr}}

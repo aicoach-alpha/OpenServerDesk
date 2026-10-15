@@ -10,6 +10,27 @@
 <body>
 <header><div><div class="eyebrow">STAGING · READ ONLY</div><h1>OpenServerDesk</h1><p>Docker inventory and Compose visibility, directly from the local engine.</p></div><div class="status">Production changes disabled</div></header>
 <main>
+<section class="panel progress-panel" aria-label="M1 weighted acceptance progress">
+  <div class="toolbar">
+    <div><h2>M1 delivery progress — verified scope only</h2>
+      <p id="progress-updated" role="status">Loading 15-minute server report…</p>
+    </div>
+    <strong class="progress-number" id="progress-number">—%</strong>
+  </div>
+  <div class="progress-content">
+    <progress id="m1-progress" max="100" value="0" aria-label="Verified M1 acceptance milestone percentage"></progress>
+    <p id="progress-delta">Each verified gate changes the score only after evidence. Percent does not represent estimated time left.</p>
+    <p id="progress-commit"></p>
+    <p id="progress-readiness"></p>
+    <div id="progress-gates" class="milestone-grid" aria-label="M1 acceptance milestones"></div>
+    <h3>Recent 15-minute snapshots</h3>
+    <div class="table-scroll">
+      <table><thead><tr><th>Checked (WIB)</th><th>Verified</th><th>Δ</th><th>Git commit</th></tr></thead>
+        <tbody id="progress-history"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
 <section class="stats" aria-label="Docker status">
 <div class="stat"><span>Containers</span><strong id="total">—</strong></div>
 <div class="stat"><span>Running</span><strong id="running">—</strong></div>
