@@ -149,6 +149,9 @@ async function stageRefresh() {
     for (const id of ["stage-file-save","stage-file-read","stage-file-delete"])
       $(id).disabled=false;
     stageFilesRefresh();
+    $("stage-checkpoint").disabled=false;
+    $("stage-recovery-refresh").disabled=false;
+    stageRecoveryRefresh();
     const tbody=$("stage-apps-list");
     tbody.replaceChildren();
     for (const a of data.apps) {
@@ -182,6 +185,7 @@ async function stageAct(action,name) {
 $("stage-connect").addEventListener("click",()=>{
   stageToken=$("stage-token").value.trim();
   $("stage-token").value="";
+  $("stage-recover-interrupted").disabled=!stageToken;
   stageRefresh();
 });
 $("stage-install").addEventListener("click",()=>stageAct("install"));
@@ -246,3 +250,78 @@ async function stageFileAction(action) {
 $("stage-file-save").addEventListener("click",()=>stageFileAction("create"));
 $("stage-file-read").addEventListener("click",()=>stageFileAction("read"));
 $("stage-file-delete").addEventListener("click",()=>stageFileAction("delete"));
+
+async function stageRecoveryApi(method,payload) {
+  if (!stageToken) throw Error("Operator token required");
+  const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
+  if (payload) {
+    opts.headers["Content-Type"]="application/json";
+    opts.body=JSON.stringify(payload);
+  }
+  const r=await fetch("/api/v1/stage/recovery",opts);
+  const value=await r.json();
+  if (!r.ok) throw Error(value.error || "Stage recovery unavailable");
+  return value;
+}
+async function stageRecoveryRefresh() {
+  try {
+    const data=await stageRecoveryApi("GET");
+    const list=$("stage-checkpoints");
+    list.replaceChildren();
+    for (const item of data.backups.slice().reverse()) {
+      const b=stageButton("Restore "+item.id+" ("+item.files+" files)",
+        false,()=>stageRestore(item.id));
+      const remove=stageButton("Delete "+item.id,false,async()=>{
+        if (!confirm("Permanently delete this STAGING backup?")) return;
+        try {
+          await stageRecoveryApi("POST",{action:"delete",checkpoint:item.id});
+          stageRecoveryRefresh();
+        } catch(err) {
+          $("stage-recovery-status").textContent=err.message;
+        }
+      });
+      list.appendChild(b);
+      list.appendChild(remove);
+    }
+    $("stage-recovery-status").textContent=data.backups.length+
+      " stage-only backups · production rollback NOT implemented";
+  } catch(err) {
+    $("stage-recovery-status").textContent=err.message;
+  }
+}
+async function stageRestore(checkpoint) {
+  if (!confirm("Restore "+checkpoint+" to isolated STAGING files? This changes only staging."))return;
+  try {
+    $("stage-recovery-status").textContent="Restoring stage data...";
+    const result=await stageRecoveryApi("POST",{action:"restore",checkpoint});
+    $("stage-recovery-status").textContent="Stage restored "+result.restored_checkpoint;
+    stageFilesRefresh();
+    stageRefresh();
+  } catch(err) {
+    $("stage-recovery-status").textContent="Restore failed: "+err.message+
+      " (stage recovery journal may require operator inspection)";
+  }
+}
+$("stage-checkpoint").addEventListener("click",async()=>{
+  try {
+    $("stage-recovery-status").textContent="Creating stage checkpoint...";
+    const result=await stageRecoveryApi("POST",{action:"checkpoint"});
+    $("stage-recovery-status").textContent="Created "+result.checkpoint;
+    stageRecoveryRefresh();
+  } catch(err) {
+    $("stage-recovery-status").textContent="Stage checkpoint failed: "+err.message;
+  }
+});
+$("stage-recovery-refresh").addEventListener("click",stageRecoveryRefresh);
+
+$("stage-recover-interrupted").addEventListener("click",async()=>{
+  if (!confirm("Recover an interrupted STAGE-only rollback from its undo journal?"))return;
+  try {
+    const result=await stageRecoveryApi("POST",{action:"recover"});
+    $("stage-recovery-status").textContent=result.recovered;
+    await stageRecoveryRefresh();
+    await stageRefresh();
+  } catch(err) {
+    $("stage-recovery-status").textContent="Recovery operation failed: "+err.message;
+  }
+});

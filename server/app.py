@@ -8,9 +8,10 @@ from pathlib import Path
 from collections import deque
 from urllib.parse import urlsplit, parse_qs
 from stage_storage import listing as stage_files_list, read as stage_file_read, perform as stage_file_action
+from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.6.4-staging"
+VERSION = "0.6.5-staging"
 SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
 ALLOWED_SUMMARY_FIELDS = (
     "checked_at_utc", "container_count", "running_container_count",
@@ -66,6 +67,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if self.path == "/api/v1/stage/recovery":
+            try:
+                self._stage_auth()
+                return self.respond(200, stage_recovery_list())
+            except AppError as err:
+                return self.respond(err.status, {"error":err.message})
         if self.path == "/api/v1/stage/files" or self.path.startswith("/api/v1/stage/files?"):
             try:
                 self._stage_auth()
@@ -165,7 +172,8 @@ class Handler(BaseHTTPRequestHandler):
         stage_auth(self.headers.get("Authorization"))
 
     def do_POST(self):
-        if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files"):
+        if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files",
+                             "/api/v1/stage/recovery"):
             return self.respond(405, {"error":"read_only"})
         try:
             self._stage_auth()
@@ -182,6 +190,16 @@ class Handler(BaseHTTPRequestHandler):
                 if set(payload) not in ({"action"}, {"action", "name"}):
                     raise AppError("invalid_operation_request", 400)
                 return self.respond(200, stage_action(payload["action"], payload.get("name")))
+            if self.path.endswith("/recovery"):
+                if set(payload) == {"action"} and payload["action"] == "checkpoint":
+                    return self.respond(200, stage_checkpoint())
+                if set(payload) == {"action"} and payload["action"] == "recover":
+                    return self.respond(200, stage_recover_interrupted())
+                if set(payload) == {"action","checkpoint"} and payload["action"] == "restore":
+                    return self.respond(200, stage_restore(payload["checkpoint"]))
+                if set(payload) == {"action","checkpoint"} and payload["action"] == "delete":
+                    return self.respond(200, stage_delete_checkpoint(payload["checkpoint"]))
+                raise AppError("invalid_stage_recovery_action",400)
             if set(payload) not in ({"action","name"}, {"action","name","content"}):
                 raise AppError("invalid_operation_request", 400)
             return self.respond(200, stage_file_action(payload["action"],

@@ -15,7 +15,7 @@ An independent, community-oriented open-source project for an Ubuntu Server dash
 
 ## Present status
 The read-only migration preflight, backup/restore rehearsals and fail-closed
-installer gate are implemented. A staging-only Debian candidate (v0.6.4)
+installer gate are implemented. A staging-only Debian candidate (v0.6.5)
 now bundles pinned ReCasaOS Core, Gateway, UserService, MessageBus,
 AppManagement, LocalStorage and upstream dashboard UI. Its file installation and isolated Gateway serving the packaged upstream UI
 have passed. A separate OpenServerDesk-owned, functional read-only Docker

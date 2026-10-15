@@ -113,7 +113,7 @@ def persist(data):
 
 
 @contextmanager
-def guarded():
+def guarded(allow_pending=False):
     if not enabled():
         raise AppError('stage_application_manager_disabled', 503)
     lock = STAGE / '.ops.lock'
@@ -124,6 +124,8 @@ def guarded():
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise AppError('stage_action_in_progress', 409)
+        if not allow_pending and (STAGE / 'recovery' / 'pending').exists():
+            raise AppError('stage_undo_pending_use_recovery_first',409)
         yield
 
 

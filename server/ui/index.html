@@ -63,6 +63,16 @@
     <textarea id="stage-file-content" rows="5" placeholder="Staging file contents; max 64 KiB"></textarea>
     <p id="stage-files-status" role="status">Authenticate to manage stage-local files.</p>
     <div id="stage-files-list" class="stage-files-list"></div>
+    <h3>Stage-only checkpoint and rollback</h3>
+    <p>Snapshot the isolated app file store and safely restore an earlier checkpoint.
+      The recovery controller stops only owned stage apps; production is untouched.</p>
+    <div class="stage-control">
+      <button type="button" id="stage-checkpoint" disabled>Create stage checkpoint</button>
+      <button type="button" id="stage-recovery-refresh" disabled>Show checkpoints</button>
+      <button type="button" id="stage-recover-interrupted" disabled>Recover interrupted stage rollback</button>
+    </div>
+    <p id="stage-recovery-status" role="status">Authenticate to view staged recovery options.</p>
+    <div id="stage-checkpoints" class="stage-files-list"></div>
   </div>
 </section>
 <section class="stats" aria-label="Docker status">

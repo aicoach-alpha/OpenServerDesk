@@ -76,3 +76,34 @@ PRODUCTION_DOCKER_IDS_PRESERVED_PASS
 This closes the specific staging manager/storage integration deficit, but
 does NOT establish the separate full ReCasaOS AppManagement + LocalStorage
 production APIs, public UX security, or full production-equivalent release.
+
+
+## LIVE stage transaction recovery, not a production cutover
+
+The v0.6.5 staging-only release also supports authenticated checkpoints,
+restore, and interrupted undo-journal recovery for isolated stage file data.
+
+- Checkpoint copies the private staged file tree to an immutable
+  name-scoped, checksummed backup while the manager's exclusive lock
+  prevents its own concurrent writes.
+- Restore verifies bundle hashes and exact owned-app identities, writes
+  and syncs a durable undo journal BEFORE changing data, stops only
+  registered owned staging applications, restores data within the same
+  bind-mounted folder inode, reactivates previously running stage apps,
+  then closes the journal. An exception attempts the undo automatically;
+  an interrupted transaction leaves a pending journal, which blocks
+  unrelated staging app/storage actions until explicitly recovered.
+- Dashboard offers checkpoint creation, restore, deletion and interrupted
+  recovery controls; all operations require the same private bearer token.
+- No production binds, Docker apps, CasaOS services, SSH config or user
+  accounts can be selected by these endpoints.
+
+End-to-end stage proof:
+LIVE_STAGE_CHECKPOINT_CORRUPT_RESTORE_AND_DOCKER_REACTIVATION_PASS,
+STAGED_PREEXISTING_DATA_RESTORED_AND_NEW_CORRUPT_FILE_REMOVED_PASS,
+LIVE_INTERRUPTED_STAGE_RECOVERY_JOURNAL_ROLLBACK_PASS,
+BLOCKED_UNSAFE_STAGE_APP_ACTIONS_UNTIL_UNDO_RESOLVED_PASS and
+LIVE_STAGE_CHECKPOINT_DELETE_PASS. All existing Docker IDs preserved.
+
+**No FULL PASS:** tests only concern constrained staging data, not complete
+production filesystem/Compose recovery or verified in-place host cutover.
