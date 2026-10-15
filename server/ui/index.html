@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenServerDesk — Staging Docker Inventory</title>
+<link rel="stylesheet" href="/ui/style.css">
+<script src="/ui/app.js" defer></script>
+</head>
+<body>
+<header><div><div class="eyebrow">STAGING · READ ONLY</div><h1>OpenServerDesk</h1><p>Docker inventory and Compose visibility, directly from the local engine.</p></div><div class="status">Production changes disabled</div></header>
+<main>
+<section class="stats" aria-label="Docker status">
+<div class="stat"><span>Containers</span><strong id="total">—</strong></div>
+<div class="stat"><span>Running</span><strong id="running">—</strong></div>
+<div class="stat"><span>Compose projects</span><strong id="projects">—</strong></div>
+</section>
+<section class="panel">
+<div class="toolbar"><div><h2>Containers</h2><p id="message" role="status">Loading live inventory…</p></div><button type="button" id="refresh">Refresh</button></div>
+<div class="table-scroll"><table><thead><tr><th>Name</th><th>Image</th><th>State</th><th>Compose project</th><th>Ports</th></tr></thead><tbody id="containers"></tbody></table></div>
+</section>
+<footer>Staging interface. Container management, migration, and production cutover are not enabled.</footer>
+</main>
+</body>
+</html>

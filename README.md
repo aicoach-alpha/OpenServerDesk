@@ -17,11 +17,13 @@ An independent, community-oriented open-source project for an Ubuntu Server dash
 The read-only migration preflight, backup/restore rehearsals and fail-closed
 installer gate are implemented. A staging-only Debian candidate (v0.5.0)
 now bundles pinned ReCasaOS Core, Gateway, UserService, MessageBus,
-AppManagement, LocalStorage and upstream dashboard UI. Its file installation
-and isolated Gateway serving the packaged UI have passed. This does **not**
-mean that the six services are integrated, that the dashboard is fully
-functional, or that production cutover, full recovery, security release
-approval, Docker updater, GPU installer or OTA are available.
+AppManagement, LocalStorage and upstream dashboard UI. Its file installation and isolated Gateway serving the packaged upstream UI
+have passed. A separate OpenServerDesk-owned, functional read-only Docker
+container/Compose dashboard is available at `/ui` when explicitly enabled
+in local staging (see `docs/M1_REAL_DOCKER_INVENTORY_20261015.md`).
+This does **not** mean the six services are fully integrated or the
+production cutover, full recovery, security release approval, Docker
+updater, GPU installer or OTA are available.
 
 Do not run a migration on a live CasaOS installation with this prototype.
 

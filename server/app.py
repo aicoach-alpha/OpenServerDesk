@@ -2,9 +2,12 @@
 import json
 import os
 from readiness import readiness
+from docker_readonly import inventory, InventoryUnavailable
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0-dev"
+VERSION = "0.2.0-dev"
+UI = Path(__file__).resolve().parent / "ui"
 class Handler(BaseHTTPRequestHandler):
     def respond(self, status, data):
         payload = json.dumps(data).encode()
@@ -16,12 +19,43 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
     def do_GET(self):
+        if self.path in ("/", "/ui", "/ui/", "/ui/index.html",
+                         "/ui/app.js", "/ui/style.css"):
+            asset = {"/": "index.html", "/ui": "index.html",
+                     "/ui/": "index.html", "/ui/index.html": "index.html",
+                     "/ui/app.js": "app.js", "/ui/style.css": "style.css"}[self.path]
+            path = UI / asset
+            try:
+                payload = path.read_bytes()
+            except OSError:
+                return self.respond(404, {"error": "not_found"})
+            self.send_response(200)
+            self.send_header("Content-Type", {
+                "index.html": "text/html; charset=utf-8",
+                "app.js": "text/javascript; charset=utf-8",
+                "style.css": "text/css; charset=utf-8"}[asset])
+            self.send_header("Content-Security-Policy",
+                             "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if self.path == "/api/v1/docker/containers":
+            try:
+                return self.respond(200, inventory())
+            except (InventoryUnavailable, ValueError):
+                return self.respond(503, {"error": "docker_inventory_unavailable"})
         if self.path == "/health":
             return self.respond(200, {"status":"ok","service":"openserverdesk","version":VERSION,"environment":"staging"})
         if self.path == "/api/v1/migration/readiness":
             return self.respond(200, readiness())
         if self.path == "/api/v1/capabilities":
-            return self.respond(200, {"read_only":True,"migration_activation":False,"production_changes":False})
+            return self.respond(200, {"read_only":True,"docker_inventory":True,
+                                      "docker_write":False, "migration_activation":False,
+                                      "production_changes":False})
         return self.respond(404, {"error":"not_found"})
     def do_POST(self):
         self.respond(405, {"error":"read_only"})
