@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.2_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.3_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -26,10 +26,11 @@ def decide():
     contents = command("dpkg-deb", "--contents", str(PKG))
     if contents.returncode:
         raise RuntimeError("package contents cannot be inspected")
-    control = command("dpkg-deb", "--field", str(PKG), "Package", "Version")
-    if control.returncode:
-        raise RuntimeError("package metadata unavailable")
-    if control.stdout.splitlines() != ["openserverdesk-m1-candidate", "0.6.2"]:
+    pkg_name = command("dpkg-deb", "--field", str(PKG), "Package")
+    pkg_version = command("dpkg-deb", "--field", str(PKG), "Version")
+    if (pkg_name.returncode or pkg_version.returncode
+            or pkg_name.stdout.strip() != "openserverdesk-m1-candidate"
+            or pkg_version.stdout.strip() != "0.6.3"):
         raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {

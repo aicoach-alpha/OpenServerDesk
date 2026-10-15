@@ -68,7 +68,7 @@ async function refreshProgress() {
     const age = Date.now() - checked.getTime();
     $("progress-updated").textContent =
       "Last server check " + checked.toLocaleString("id-ID", {timeZone:"Asia/Jakarta"}) +
-      " WIB · " + (age > 21 * 60 * 1000 ? "STALE REPORT — latest check overdue" : "15-minute host reports enabled");
+      " WIB · AUTOMATIC MONITORING DISABLED (historical snapshot only)";
     const delta = report.delta_percent_since_previous;
     $("progress-delta").textContent = (delta === null ? "Initial verified baseline" :
       delta === 0 ? "NO NEW VERIFIED MILESTONE (+0%)" :
@@ -117,4 +117,132 @@ async function refreshProgress() {
   }
 }
 refreshProgress();
-setInterval(refreshProgress, 60 * 1000);
+// 15-minute server monitor explicitly disabled by operator; no timed polling.
+
+let stageToken = "";
+async function stageRequest(method, body) {
+  if (!stageToken) throw Error("Enter operator token first");
+  const options = {method, cache:"no-store", headers:{"Authorization":"Bearer " + stageToken}};
+  if (body) {
+    options.headers["Content-Type"]="application/json";
+    options.body=JSON.stringify(body);
+  }
+  const response = await fetch("/api/v1/stage/apps", options);
+  const data = await response.json();
+  if (!response.ok) throw Error(data.error || "Stage API unavailable ("+response.status+")");
+  return data;
+}
+function stageButton(text, disabled, callback) {
+  const b=document.createElement("button");
+  b.type="button";
+  b.textContent=text;
+  b.disabled=disabled;
+  b.addEventListener("click", callback);
+  return b;
+}
+async function stageRefresh() {
+  try {
+    const data=await stageRequest("GET");
+    $("stage-message").textContent="Authorized; " + data.apps.length +
+      " isolated stage apps · CasaOS production is not editable.";
+    $("stage-install").disabled=false;
+    for (const id of ["stage-file-save","stage-file-read","stage-file-delete"])
+      $(id).disabled=false;
+    stageFilesRefresh();
+    const tbody=$("stage-apps-list");
+    tbody.replaceChildren();
+    for (const a of data.apps) {
+      const tr=document.createElement("tr");
+      cell(tr,a.name);cell(tr,a.image);
+      const state=cell(tr,a.state);
+      state.className=a.running?"running":"inactive";
+      const tools=document.createElement("td");
+      const actions=a.running?["stop","restart","uninstall"]:["start","uninstall"];
+      for (const action of actions) {
+        tools.appendChild(stageButton(action,false,()=>stageAct(action,a.name)));
+      }
+      tr.appendChild(tools);tbody.appendChild(tr);
+    }
+  } catch(err) {
+    $("stage-install").disabled=true;
+    $("stage-message").textContent="Stage access: "+err.message;
+  }
+}
+async function stageAct(action,name) {
+  if (action==="uninstall" && !confirm("Remove this isolated stage app?")) return;
+  $("stage-message").textContent="Executing staged "+action+"…";
+  try {
+    const result=await stageRequest("POST",name?{action,name}:{action});
+    $("stage-message").textContent="Stage "+result.operation+" succeeded";
+    await stageRefresh();
+  } catch(err) {
+    $("stage-message").textContent="Stage action rejected: "+err.message;
+  }
+}
+$("stage-connect").addEventListener("click",()=>{
+  stageToken=$("stage-token").value.trim();
+  $("stage-token").value="";
+  stageRefresh();
+});
+$("stage-install").addEventListener("click",()=>stageAct("install"));
+
+async function stageFileApi(method, payload, name) {
+  if (!stageToken) throw Error("Operator token required");
+  let url="/api/v1/stage/files";
+  if (name) url+="?name="+encodeURIComponent(name);
+  const options={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
+  if (payload) {
+    options.headers["Content-Type"]="application/json";
+    options.body=JSON.stringify(payload);
+  }
+  const resp=await fetch(url,options);
+  const data=await resp.json();
+  if (!resp.ok) throw Error(data.error || "File action failed");
+  return data;
+}
+async function stageFilesRefresh() {
+  const body=$("stage-files-list");
+  try {
+    const data=await stageFileApi("GET");
+    body.replaceChildren();
+    for (const f of data.files) {
+      const item=document.createElement("button");
+      item.type="button";
+      item.textContent=f.name+" ("+f.bytes+" bytes)";
+      item.addEventListener("click",()=>{
+        $("stage-file-name").value=f.name;
+        stageFileAction("read");
+      });
+      body.appendChild(item);
+    }
+    $("stage-files-status").textContent=data.files.length+" isolated stage files";
+  } catch(error) {
+    $("stage-files-status").textContent=error.message;
+  }
+}
+async function stageFileAction(action) {
+  const name=$("stage-file-name").value.trim();
+  if (!name) {
+    $("stage-files-status").textContent="Enter a file name first";
+    return;
+  }
+  if (action==="delete" && !confirm("Delete this isolated stage file?")) return;
+  try {
+    if (action==="read") {
+      const data=await stageFileApi("GET",null,name);
+      $("stage-file-content").value=data.content;
+      $("stage-files-status").textContent="Read "+name;
+      return;
+    }
+    const payload=action==="create" ?
+      {action,name,content:$("stage-file-content").value} : {action,name};
+    await stageFileApi("POST",payload);
+    $("stage-files-status").textContent=action+" complete for "+name;
+    await stageFilesRefresh();
+  } catch(err) {
+    $("stage-files-status").textContent=err.message;
+  }
+}
+$("stage-file-save").addEventListener("click",()=>stageFileAction("create"));
+$("stage-file-read").addEventListener("click",()=>stageFileAction("read"));
+$("stage-file-delete").addEventListener("click",()=>stageFileAction("delete"));

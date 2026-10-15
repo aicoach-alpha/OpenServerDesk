@@ -15,7 +15,7 @@ An independent, community-oriented open-source project for an Ubuntu Server dash
 
 ## Present status
 The read-only migration preflight, backup/restore rehearsals and fail-closed
-installer gate are implemented. A staging-only Debian candidate (v0.6.2)
+installer gate are implemented. A staging-only Debian candidate (v0.6.3)
 now bundles pinned ReCasaOS Core, Gateway, UserService, MessageBus,
 AppManagement, LocalStorage and upstream dashboard UI. Its file installation and isolated Gateway serving the packaged upstream UI
 have passed. A separate OpenServerDesk-owned, functional read-only Docker
@@ -42,3 +42,14 @@ Do not run a migration on a live CasaOS installation with this prototype.
 ## License
 Apache-2.0 for original code in this repository. When upstream sources are imported,
 their individual licenses and attribution must be preserved. Not affiliated with IceWhale or ReCasaOS.
+
+## Authenticated local staging application management
+
+An owner-labelled, isolated Docker application manager and a private file store
+are functional on the loopback staging service. They require a local stage
+operator token and cannot mutate existing production CasaOS containers.
+See docs/M1_STAGE_APPLICATION_MANAGEMENT_20261015.md for scope and evidence.
+
+By user request, both the OpenServerDesk hourly ChatGPT automation and the
+NAS 15-minute cron monitor were disabled; any previous progress display
+is historical until a fresh operator-initiated check is made.

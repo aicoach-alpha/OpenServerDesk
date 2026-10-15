@@ -13,7 +13,7 @@
 <section class="panel progress-panel" aria-label="M1 weighted acceptance progress">
   <div class="toolbar">
     <div><h2>M1 delivery progress — verified scope only</h2>
-      <p id="progress-updated" role="status">Loading 15-minute server report…</p>
+      <p id="progress-updated" role="status">Loading latest available historical report…</p>
     </div>
     <strong class="progress-number" id="progress-number">—%</strong>
   </div>
@@ -29,6 +29,40 @@
         <tbody id="progress-history"></tbody>
       </table>
     </div>
+  </div>
+</section>
+<section class="panel stage-apps" aria-label="Isolated staged Docker application lifecycle">
+  <div class="toolbar">
+    <div><h2>Stage app management</h2>
+      <p>Authenticated install, start, stop, restart and removal of owned,
+      network-isolated test apps only. Existing CasaOS apps are read-only.</p>
+    </div>
+    <span class="status">Staging apps only</span>
+  </div>
+  <div class="progress-content">
+    <div class="stage-control">
+      <label for="stage-token">Local stage operator token (not stored in browser)</label>
+      <input type="password" id="stage-token" autocomplete="off" placeholder="Paste one-time stage credential" />
+      <button type="button" id="stage-connect">Connect</button>
+      <button type="button" id="stage-install" disabled>Install isolated test app</button>
+    </div>
+    <p id="stage-message" role="status">Stage management requires local authorization.</p>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Actions</th></tr></thead>
+      <tbody id="stage-apps-list"></tbody>
+    </table></div>
+    <h3>Stage local storage</h3>
+    <p>Write, read and delete text files in isolated application storage only.</p>
+    <div class="stage-control">
+      <label for="stage-file-name">File name</label>
+      <input id="stage-file-name" placeholder="example.txt" autocomplete="off"/>
+      <button type="button" id="stage-file-save" disabled>Create</button>
+      <button type="button" id="stage-file-read" disabled>Read</button>
+      <button type="button" id="stage-file-delete" disabled>Delete</button>
+    </div>
+    <textarea id="stage-file-content" rows="5" placeholder="Staging file contents; max 64 KiB"></textarea>
+    <p id="stage-files-status" role="status">Authenticate to manage stage-local files.</p>
+    <div id="stage-files-list" class="stage-files-list"></div>
   </div>
 </section>
 <section class="stats" aria-label="Docker status">

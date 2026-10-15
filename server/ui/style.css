@@ -15,3 +15,14 @@ main{padding:30px clamp(18px,5vw,80px)}.stats{display:grid;grid-template-columns
 .milestone span{display:inline}.milestone small{display:block;color:#95a4b8;margin-top:5px}
 .progress-content h3{font-size:15px;margin-top:24px}
 @media(max-width:700px){.milestone-grid{grid-template-columns:1fr}}
+
+.stage-apps{margin-bottom:24px}.stage-control{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.stage-control label{font-size:12px;color:#a5b6ca}
+.stage-control input{border:1px solid #476780;background:#0d1728;color:#e7edf7;padding:10px;border-radius:9px;min-width:220px}
+.stage-apps td button{margin:2px;padding:7px 11px;font-size:12px}
+
+#stage-file-content{display:block;margin:12px 0;width:100%;background:#0d1728;
+border:1px solid #476780;border-radius:9px;color:#e7edf7;padding:12px;font:inherit;
+resize:vertical}
+.stage-files-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.stage-files-list button{font-size:12px;padding:7px 10px;background:#233c56}

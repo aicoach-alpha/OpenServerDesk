@@ -1,3 +1,12 @@
+# OPERATOR UPDATE (2026-10-15 17:58 WIB): BOTH M1 AUTONOMOUS TASKS STOPPED
+
+At the user's explicit request the ChatGPT hourly M1 task is disabled and the
+server cron entry /etc/cron.d/openserverdesk-m1-progress was removed.
+Historical snapshots remain for audit; nothing is scheduled to collect new
+reports automatically. Browser M1 progress is now explicitly marked historical.
+
+---
+
 # M1 auditable 15-minute progress monitoring
 
 Running on andre-nas staging only. ChatGPT itself cannot send scheduled

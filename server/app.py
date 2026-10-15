@@ -3,11 +3,14 @@ import json
 import os
 from readiness import readiness
 from docker_readonly import inventory, InventoryUnavailable
+from stage_apps import authenticate as stage_auth, list_apps as stage_list, action as stage_action, AppError, enabled as stage_enabled
 from pathlib import Path
 from collections import deque
+from urllib.parse import urlsplit, parse_qs
+from stage_storage import listing as stage_files_list, read as stage_file_read, perform as stage_file_action
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.3.0-dev"
+VERSION = "0.6.3-staging"
 SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
 ALLOWED_SUMMARY_FIELDS = (
     "checked_at_utc", "container_count", "running_container_count",
@@ -63,6 +66,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if self.path == "/api/v1/stage/files" or self.path.startswith("/api/v1/stage/files?"):
+            try:
+                self._stage_auth()
+                parsed = urlsplit(self.path)
+                values = parse_qs(parsed.query, strict_parsing=True, max_num_fields=2)
+                if not values:
+                    return self.respond(200, stage_files_list())
+                if set(values) != {"name"} or len(values["name"]) != 1:
+                    raise AppError("invalid_stage_file_query",400)
+                return self.respond(200, stage_file_read(values["name"][0]))
+            except (ValueError, TypeError):
+                return self.respond(400, {"error":"invalid_stage_file_query"})
+            except AppError as err:
+                return self.respond(err.status, {"error":err.message})
+        if self.path == "/api/v1/stage/apps":
+            try:
+                self._stage_auth()
+                return self.respond(200, stage_list())
+            except AppError as err:
+                return self.respond(err.status, {"error": err.message})
         if self.path == "/api/v1/m1/progress":
             try:
                 if PROGRESS.is_symlink() or PROGRESS.stat().st_size > 32768:
@@ -121,11 +144,52 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, readiness())
         if self.path == "/api/v1/capabilities":
             return self.respond(200, {"read_only":True,"docker_inventory":True,
-                                      "docker_write":False, "migration_activation":False,
+                                      "docker_write":False,
+                                      "isolated_stage_app_lifecycle":stage_enabled(),
+                                      "production_app_management":False,
+                                      "migration_activation":False,
                                       "production_changes":False})
         return self.respond(404, {"error":"not_found"})
+    def _stage_auth(self):
+        origin = self.headers.get("Origin")
+        allowed = {
+            "http://127.0.0.1:" + str(self.server.server_port),
+            "http://localhost:" + str(self.server.server_port),
+        }
+        host = self.headers.get("Host", "")
+        if host not in ("127.0.0.1:" + str(self.server.server_port),
+                        "localhost:" + str(self.server.server_port)):
+            raise AppError("invalid_stage_host_header", 403)
+        if origin and origin not in allowed:
+            raise AppError("invalid_stage_origin", 403)
+        stage_auth(self.headers.get("Authorization"))
+
     def do_POST(self):
-        self.respond(405, {"error":"read_only"})
+        if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files"):
+            return self.respond(405, {"error":"read_only"})
+        try:
+            self._stage_auth()
+            if self.headers.get("Content-Type", "") != "application/json":
+                raise AppError("json_only", 415)
+            size = int(self.headers.get("Content-Length", "0"))
+            limit = 512 if self.path.endswith("/apps") else 131072
+            if size < 2 or size > limit:
+                raise AppError("bad_request_size", 400)
+            payload = json.loads(self.rfile.read(size))
+            if not isinstance(payload, dict):
+                raise AppError("invalid_operation_request", 400)
+            if self.path.endswith("/apps"):
+                if set(payload) not in ({"action"}, {"action", "name"}):
+                    raise AppError("invalid_operation_request", 400)
+                return self.respond(200, stage_action(payload["action"], payload.get("name")))
+            if set(payload) not in ({"action","name"}, {"action","name","content"}):
+                raise AppError("invalid_operation_request", 400)
+            return self.respond(200, stage_file_action(payload["action"],
+                                  payload["name"], payload.get("content")))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return self.respond(400, {"error":"invalid_json"})
+        except AppError as err:
+            return self.respond(err.status, {"error":err.message})
     def do_PUT(self):
         self.respond(405, {"error":"read_only"})
     def do_DELETE(self):
