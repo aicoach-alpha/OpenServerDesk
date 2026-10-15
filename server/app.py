@@ -128,6 +128,27 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (OSError, ValueError, TypeError):
                 return self.respond(503, {"error": "m1_progress_history_unavailable"})
+        if self.path == "/api/v1/migration/topology":
+            try:
+                report_path = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_TOPOLOGY_PREFLIGHT.json")
+                if report_path.is_symlink() or report_path.stat().st_size > 8192:
+                    raise ValueError("unsafe topology report")
+                data = json.loads(report_path.read_text())
+                fields = {"schema_version","checked_at_utc","scope",
+                          "source_inventory_checked_at","production_modified",
+                          "migration_allowed","source_count","directory_sources",
+                          "file_sources","special_sources","writable_bind_consumers",
+                          "shared_writable_source_count","nested_source_pairs",
+                          "filesystem_count","required_gates"}
+                if (set(data)!=fields or data["schema_version"]!=1
+                        or data["migration_allowed"] is not False
+                        or data["production_modified"] is not False
+                        or data["scope"]!="real_docker_bind_topology_readonly"
+                        or not isinstance(data["required_gates"],list)):
+                    raise ValueError("unexpected topology report")
+                return self.respond(200,data)
+            except (OSError,ValueError,TypeError,KeyError):
+                return self.respond(503,{"error":"migration_topology_unavailable"})
         if self.path == "/api/v1/migration/data-coverage":
             try:
                 if SUMMARY.is_symlink() or SUMMARY.stat().st_size > 4096:

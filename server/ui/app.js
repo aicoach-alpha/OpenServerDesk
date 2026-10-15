@@ -325,3 +325,17 @@ $("stage-recover-interrupted").addEventListener("click",async()=>{
     $("stage-recovery-status").textContent="Recovery operation failed: "+err.message;
   }
 });
+
+async function topology() {
+  try {
+    const response = await fetch("/api/v1/migration/topology", {cache:"no-store"});
+    if (!response.ok) throw Error("Read-only topology unavailable");
+    const report = await response.json();
+    $("bind-filesystems").textContent = report.filesystem_count;
+    $("shared-binds").textContent = report.shared_writable_source_count;
+  } catch (_error) {
+    $("bind-filesystems").textContent = "—";
+    $("shared-binds").textContent = "—";
+  }
+}
+topology();

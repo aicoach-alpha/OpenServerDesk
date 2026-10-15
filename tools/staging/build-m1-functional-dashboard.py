@@ -12,7 +12,7 @@ import tempfile
 
 REPO = Path(__file__).resolve().parents[2]
 BASE = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
-OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.5_amd64.deb")
+OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.6_amd64.deb")
 STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
 
 def main():
@@ -29,8 +29,8 @@ def main():
         # never invoke it during package installation.
         migration_tools = tree/"usr/lib/openserverdesk/tools"
         migration_tools.mkdir(parents=True, exist_ok=True)
-        for module in ("m1_app_data_inventory.py", "full_app_recovery.py",
-                       "volume_fixture.py"):
+        for module in ("m1_app_data_inventory.py", "m1_topology_preflight.py",
+                       "full_app_recovery.py", "volume_fixture.py"):
             shutil.copy2(REPO/"tools/migration"/module,
                          migration_tools/module)
         ui = server/"ui"
@@ -42,7 +42,7 @@ def main():
         control = tree/"DEBIAN"
         control.mkdir()
         (control/"control").write_text(
-            "Package: openserverdesk-m1-candidate\nVersion: 0.6.5\n"
+            "Package: openserverdesk-m1-candidate\nVersion: 0.6.6\n"
             "Section: admin\nPriority: optional\nArchitecture: amd64\n"
             "Maintainer: OpenServerDesk staging <staging@example.invalid>\n"
             "Description: Full component staging payload with read-only Docker inventory UI\n"
