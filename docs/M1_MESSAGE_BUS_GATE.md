@@ -34,3 +34,12 @@ No user migration/rollback or pentest PASS is inferred from this runtime gate.
 - Authentication and complete event integration NOT PASS. Do not manufacture
   an event registration or weaken bus authentication to bypass this check.
 - Production CasaOS services remained active.
+
+## WebSocket event integration PASS (2026-10-15)
+A synthetic event type was registered through the isolated staging Message Bus
+using POST /v2/message_bus/event_type with the required camelCase keys
+`sourceID`, `name`, `propertyTypeList`. API response: HTTP 200.
+The UserService staging runtime subsequently logged `subscribed to`
+for the local-storage event source over WebSocket. Use the replayable,
+staging-restricted fixture `tools/staging/register-synthetic-event.sh`.
+This does NOT verify real LocalStorage app behavior or login flows.
