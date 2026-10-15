@@ -12,7 +12,7 @@ import tempfile
 
 REPO = Path(__file__).resolve().parents[2]
 BASE = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
-OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.1_amd64.deb")
+OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.2_amd64.deb")
 STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
 
 def main():
@@ -29,10 +29,10 @@ def main():
         # never invoke it during package installation.
         migration_tools = tree/"usr/lib/openserverdesk/tools"
         migration_tools.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(
-            REPO/"tools/migration/m1_app_data_inventory.py",
-            migration_tools/"m1_app_data_inventory.py"
-        )
+        for module in ("m1_app_data_inventory.py", "full_app_recovery.py",
+                       "volume_fixture.py"):
+            shutil.copy2(REPO/"tools/migration"/module,
+                         migration_tools/module)
         ui = server/"ui"
         ui.mkdir(exist_ok=True)
         for name in ("index.html", "style.css", "app.js"):
