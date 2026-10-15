@@ -57,9 +57,11 @@ def decide():
         )
     else:
         blockers["full_product_runtime_integration"] = (
-            "Full component payload packaged but Core, AppManagement and "
-            "LocalStorage have not been safely booted and exercised together "
-            "with the dashboard and persistence on an isolated stack."
+            "All six packaged service processes have booted in an isolated "
+            "staging namespace with dashboard and UserService route; full "
+            "AppManagement/Docker operations, LocalStorage mounts, application "
+            "persistence, UI functionality and production-equivalent integration "
+            "remain unverified."
         )
     if '"activation_implemented":False' in installer or '"rollback_implemented":False' in installer:
         blockers["complete_activation_rollback_controller"] = (

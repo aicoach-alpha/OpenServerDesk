@@ -11,7 +11,8 @@ not imply full M1 release. Keep `migration_allowed=false`.
 - M1.3 CasaOS settings/SQLite backup and restore rehearsal: PASS dev (not full application restore)
 - M1.4 Debian prototype install/upgrade/downgrade: PASS staging, production updater not implemented
 - M1.5 Complete upstream component **payload** in inert staging .deb: PASS (v0.5.0, pinned hashes, isolated Gateway served UI)
-- M1.5 Full runnable integrated product, safe in-place cutover, rollback and final security gate: PENDING
+- M1.5 All six pinned upstream service processes + UI booted in socketless isolated staging: PASS (limited)
+- M1.5 Full product integration, safe in-place cutover, rollback and final security gate: PENDING
 
 ## M2 Docker core
 Discovery, CLI/Compose stacks, ports and logbook.
