@@ -16,7 +16,7 @@ def request(method, path, payload=None, token=None):
         cmd += ["-H", "Content-Type: application/json", "--data-binary", "@-"]
     done = subprocess.run(cmd, input=json.dumps(payload) if payload is not None else None,
                           capture_output=True, text=True, timeout=15, check=True)
-    body, code = done.stdout.rsplit("\\n", 1)
+    body, code = done.stdout.rsplit(chr(10), 1)
     return int(code), json.loads(body)
 
 def check(ok, what):
