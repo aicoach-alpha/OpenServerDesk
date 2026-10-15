@@ -18,6 +18,8 @@ def files(root):
 
 
 def snapshot(source, destination):
+    if Path(source).is_symlink() or Path(destination).is_symlink():
+        raise ValueError("symlink root not allowed")
     source, destination = Path(source).resolve(), Path(destination).resolve()
     if source == destination or destination.exists() or not source.is_dir() or source.is_symlink():
         raise ValueError("separate fixture-only directories required")

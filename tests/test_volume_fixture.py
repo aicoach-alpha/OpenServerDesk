@@ -26,6 +26,16 @@ class VolumeFixtureTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 snapshot(data, root / "archive")
 
+    def test_symlink_source_root_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            real = root / "real"
+            real.mkdir()
+            (real / "fixture").write_text("x")
+            (root / "alias").symlink_to(real, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                snapshot(root / "alias", root / "archive")
+
     def test_snapshot_tamper_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
