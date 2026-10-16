@@ -23,7 +23,7 @@ BASE=Path('/opt/openserverdesk-dev/releases')
 PREVIOUS=BASE/'0.6.35'
 NEXT=BASE/'0.6.36'
 PACKAGE=Path('/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.36_amd64.deb')
-EXPECTED_SHA='STAGE_BUILD_SHA_REPLACE'
+EXPECTED_SHA='95b019f5b4364063e34d628af8563f45e53e1654e87ad60c22b0c970d0f63042'
 OVERRIDE=Path('/etc/systemd/system/openserverdesk-staging.service.d/30-osd-package-activation.conf')
 JOURNAL=BASE/'upgrade-0.6.36-pending.json'
 RECEIPT=BASE/'upgrade-0.6.36-receipt.json'
@@ -59,7 +59,10 @@ NEW_ENTRY=entry('0.6.36')
 
 
 def live(path):
-    with urlopen(BASE_URL+path,timeout=3) as r:
+    # Docker inventory/resource metrics may inspect many containers; a
+    # three-second read deadline caused false-negative stage activation.
+    # Keep a bounded 20 s budget; any real service failure still fails closed.
+    with urlopen(BASE_URL+path,timeout=20) as r:
         if r.status!=200:raise UpgradeError('staging endpoint not healthy')
         return json.load(r) if path!='/ui' else r.read(100000).decode()
 

@@ -19,7 +19,7 @@ DOC=BASE/f'OpenServerDesk-stage-{VERSION}.manifest.json'
 SIG=BASE/f'OpenServerDesk-stage-{VERSION}.manifest.sig'
 KEY=Path('/opt/openserverdesk-dev/signing/staging-ed25519-private.pem')
 PUBLIC=Path(__file__).resolve().parents[2]/'security/staging-ed25519-public.pem'
-SOURCE_SHA='STAGE_GIT_SHA_REPLACE'
+SOURCE_SHA='9bc5a732b1853e9ed89336ab4f00cf8e9845adf8'
 
 
 def sha256(path):
