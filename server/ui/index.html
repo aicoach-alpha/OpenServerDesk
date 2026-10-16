@@ -31,6 +31,27 @@
     </div>
   </div>
 </section>
+<section class="panel" aria-label="Migration cutover readiness">
+  <div class="toolbar">
+    <div>
+      <h2>CasaOS replacement cutover — read-only plan</h2>
+      <p id="cutover-checked">Loading verified on-host migration readiness…</p>
+    </div>
+    <span class="status" id="cutover-status">Not authorized</span>
+  </div>
+  <div class="progress-content">
+    <p>No user-upload files or Nextcloud data are migrated. Existing Docker
+      bind mounts and Compose references are preserved.</p>
+    <div class="coverage-grid">
+      <div><span>Verified platform files</span><strong id="cutover-files">—</strong></div>
+      <div><span>Verified SQLite databases</span><strong id="cutover-dbs">—</strong></div>
+      <div><span>Preserved protected bind references</span><strong id="cutover-protected">—</strong></div>
+    </div>
+    <h3>Required conditions before production replacement</h3>
+    <div id="cutover-gates" class="milestone-grid"></div>
+    <p id="cutover-next">Do not stop CasaOS or modify user data.</p>
+  </div>
+</section>
 <section class="panel stage-apps" aria-label="Isolated staged Docker application lifecycle">
   <div class="toolbar">
     <div><h2>Stage app management</h2>

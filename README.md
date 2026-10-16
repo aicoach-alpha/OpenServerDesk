@@ -48,6 +48,11 @@ The packaged OpenServerDesk staging runtime v0.6.15 is now LIVE on
 127.0.0.1:18690 with working M1 progress and Docker inventory endpoints.
 See docs/M1_LIVE_STAGING_V0615_20261016.md. This is not CasaOS production.
 
+Staging v0.6.16 adds a live read-only cutover readiness dashboard and
+strictly sanitized configuration-only acceptance report, with 5 of 9
+conditions verified and 4 high-stakes gates blocked. See
+docs/M1_LIVE_CUTOVER_PLAN_V0616_20261016.md.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout

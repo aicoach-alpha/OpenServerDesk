@@ -31,6 +31,21 @@ ALLOWED_SUMMARY_FIELDS = (
 UI = Path(__file__).resolve().parent / "ui"
 PROGRESS = Path("/opt/openserverdesk-dev/runtime-stage/progress/latest.json")
 PROGRESS_HISTORY = Path("/opt/openserverdesk-dev/runtime-stage/progress/history.jsonl")
+CUTOVER_PLAN = Path("/opt/openserverdesk-dev/runtime-stage/M1_CUTOVER_PLAN_PUBLIC.json")
+CUTOVER_FIELDS = {
+    "schema_version", "checked_at_utc", "scope", "production_modified",
+    "migration_allowed", "user_data_content_accessed", "external_hdd_backup_required",
+    "running_containers", "compose_projects", "protected_bind_references_preserved",
+    "selected_platform_config_sources", "verified_config_files",
+    "verified_sqlite_databases", "gates", "pending_gates", "next_priority",
+}
+CUTOVER_GATE_KEYS = {
+    "platform_scope_not_user_data", "backup_on_independent_ssd",
+    "backed_up_platform_source_set_matches_current",
+    "verified_ssd_snapshot_and_independent_restore", "six_casaos_units_healthy",
+    "cross_service_consistent_snapshot", "production_switch_and_undo_rehearsed",
+    "independent_security_and_signed_release", "explicit_maintenance_authorization",
+}
 PROGRESS_FIELDS = {
     "schema_version", "checked_at_utc", "checked_at_wib", "metric",
     "progress_percent", "milestones", "git_sha", "git_commit_at",
@@ -137,6 +152,33 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (OSError, ValueError, TypeError):
                 return self.respond(503, {"error": "m1_progress_history_unavailable"})
+        if self.path == "/api/v1/migration/cutover-plan":
+            try:
+                if CUTOVER_PLAN.is_symlink() or CUTOVER_PLAN.stat().st_size > 8192:
+                    raise ValueError("invalid cutover report file")
+                report = json.loads(CUTOVER_PLAN.read_text())
+                if (set(report) != CUTOVER_FIELDS
+                        or report["schema_version"] != 1
+                        or report["scope"] != "CASAOS_PLATFORM_CONFIG_ONLY_NO_USER_DATA_MIGRATION"
+                        or report["migration_allowed"] is not False
+                        or report["production_modified"] is not False
+                        or report["user_data_content_accessed"] is not False
+                        or report["external_hdd_backup_required"] is not False
+                        or not isinstance(report["gates"], dict)
+                        or set(report["gates"]) != CUTOVER_GATE_KEYS
+                        or any(type(v) is not bool for v in report["gates"].values())
+                        or set(report["pending_gates"]) != {
+                            k for k, passed in report["gates"].items() if not passed
+                        }
+                        or any(type(report[k]) is not int or report[k] < 0
+                               for k in ("running_containers", "compose_projects",
+                                         "protected_bind_references_preserved",
+                                         "selected_platform_config_sources",
+                                         "verified_config_files", "verified_sqlite_databases"))):
+                    raise ValueError("untrusted release report")
+                return self.respond(200, report)
+            except (OSError, ValueError, TypeError, KeyError):
+                return self.respond(503, {"error": "cutover_plan_unavailable"})
         if self.path == "/api/v1/migration/topology":
             try:
                 report_path = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_TOPOLOGY_PREFLIGHT.json")

@@ -339,3 +339,45 @@ async function topology() {
   }
 }
 topology();
+
+
+async function refreshCutoverPlan() {
+  try {
+    const response=await fetch("/api/v1/migration/cutover-plan", {cache:"no-store"});
+    if (!response.ok) throw Error("Cutover planning unavailable ("+response.status+")");
+    const report=await response.json();
+    if (report.migration_allowed !== false || report.user_data_content_accessed !== false)
+      throw Error("Unexpected unsafe cutover report");
+    $("cutover-status").textContent="CUTOVER BLOCKED";
+    $("cutover-checked").textContent="Read-only evidence checked " +
+      new Date(report.checked_at_utc).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})+" WIB";
+    $("cutover-files").textContent=report.verified_config_files;
+    $("cutover-dbs").textContent=report.verified_sqlite_databases;
+    $("cutover-protected").textContent=report.protected_bind_references_preserved;
+    const descriptions={
+      platform_scope_not_user_data:"Platform configuration selected; Nextcloud uploads excluded",
+      backup_on_independent_ssd:"Platform backup is on an independent SSD filesystem",
+      backed_up_platform_source_set_matches_current:"Backup covers selected current platform roots",
+      verified_ssd_snapshot_and_independent_restore:"SSD backup and separate restore independently verified",
+      six_casaos_units_healthy:"All six original CasaOS services healthy",
+      cross_service_consistent_snapshot:"Cross-service transaction consistency verified",
+      production_switch_and_undo_rehearsed:"Production-equivalent activation and complete rollback proven",
+      independent_security_and_signed_release:"Independent security and signed release acceptance",
+      explicit_maintenance_authorization:"Explicitly authorized production maintenance",
+    };
+    const holder=$("cutover-gates");holder.replaceChildren();
+    for (const [key,label] of Object.entries(descriptions)) {
+      const item=document.createElement("div");item.className="milestone";
+      const state=document.createElement("strong");
+      state.className=report.gates[key]?"running":"inactive";
+      state.textContent=report.gates[key]?"VERIFIED":"BLOCKED";
+      const explanation=document.createElement("span");explanation.textContent=" "+label;
+      item.append(state,explanation);holder.appendChild(item);
+    }
+    $("cutover-next").textContent=report.next_priority;
+  } catch(err) {
+    $("cutover-status").textContent="Unavailable";
+    $("cutover-checked").textContent="Cutover report: "+err.message;
+  }
+}
+refreshCutoverPlan();
