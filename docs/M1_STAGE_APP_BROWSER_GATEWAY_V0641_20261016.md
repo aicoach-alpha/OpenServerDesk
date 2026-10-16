@@ -10,3 +10,12 @@ Original dashboard MySpeed localhost addresses referred to the client device whe
 - SECURITY LIMITATION: same-origin hosted app scripts are not strongly isolated from the dashboard origin; a separate isolated origin is needed for general untrusted app hosting.
 - No CasaOS production change, data upload migration, external HDD reads, DNS changes or production cutover.
 - Broader App Store feature parity and M1 acceptance remain open.
+
+## Focused UAT evidence on signed v0.6.41
+- Staging /health returned v0.6.41 after journaled package deployment.
+- 7 gateway security/unit tests PASS; 44 preceding Store tests PASS.
+- The actual MySpeed container's HTML, JS, CSS, and manifest were fetched through the project-scoped Python proxy with HTTP 200.
+- Independent temporary HTTP server using the same packaged Handler and an explicitly mocked operator authorization returned HTTP 200 for session creation, MySpeed HTML, JS, and CSS. This test is not evidence that a real operator's browser login has been exercised.
+- Against the real staging HTTP service, unauthenticated GET of the app gateway and unauthenticated POST of the session endpoint both returned HTTP 401.
+- Browser UI navigation using a genuine operator token, remote DNS access, the full app SPA workflow and a separated origin for untrusted apps remain unverified.
+- Production CasaOS service and user data were not modified. Stage-only migration_allowed remains false.
