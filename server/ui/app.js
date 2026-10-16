@@ -186,6 +186,8 @@ async function stageRefresh() {
     $("topology-install").disabled=!stageCanWrite;
     $("topology-refresh").disabled=false;
     topologyRefresh();
+    $("appstore-refresh").disabled=false;
+    if (!casaosStoreData) appstoreRefresh();
     stageComposeRefresh();
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
@@ -214,6 +216,7 @@ async function stageRefresh() {
     $("stage-compose-refresh").disabled=true;
     $("topology-install").disabled=true;
     $("topology-refresh").disabled=true;
+    $("appstore-refresh").disabled=true;
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=true;
@@ -702,4 +705,111 @@ $("topology-install").addEventListener("click",async()=>{
   } finally {
     $("topology-install").disabled=!stageCanWrite;
   }
+});
+
+
+let casaosStoreData=null;
+let appstoreVisibleCount=30;
+
+async function appstoreRefresh() {
+  if (!stageToken) {
+    $("appstore-status").textContent="Staging authentication is required.";
+    return;
+  }
+  $("appstore-refresh").disabled=true;
+  $("appstore-status").textContent="Reading locally cached CasaOS App Store…";
+  try {
+    const response=await fetch("/api/v1/stage/casaos-appstore",{
+      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+    });
+    const result=await response.json();
+    if (!response.ok)throw Error(result.error||"App Store request failed");
+    if (result.source!=="existing_casaos_appstore_cache_readonly"
+        || result.production_modified!==false
+        || result.nextcloud_user_data_inspected!==false
+        || result.app_install_enabled!==false)
+      throw Error("Unexpected App Store scope");
+    casaosStoreData=result;
+    const category=$("appstore-category");
+    category.replaceChildren();
+    category.add(new Option("All categories",""));
+    for (const name of result.categories) category.add(new Option(name,name));
+    const store=$("appstore-source");
+    store.replaceChildren();
+    store.add(new Option("All stores",""));
+    for (const name of Object.keys(result.store_counts).sort())
+      store.add(new Option(name+" ("+result.store_counts[name]+")",name));
+    appstoreVisibleCount=30;
+    appstoreRender();
+    $("appstore-status").textContent=result.app_count+
+      " CasaOS catalogue records loaded from local store cache · install disabled until staging parity is proven";
+  } catch(err) {
+    $("appstore-status").textContent="App Store unavailable: "+err.message;
+  } finally {
+    $("appstore-refresh").disabled=!stageToken;
+  }
+}
+
+function appstoreRender() {
+  if (!casaosStoreData)return;
+  const search=$("appstore-search").value.trim().toLowerCase();
+  const category=$("appstore-category").value;
+  const source=$("appstore-source").value;
+  const matches=casaosStoreData.apps.filter(app=>{
+    return (!source||app.store===source)&&(!category||app.category===category)
+      && (!search||[app.title,app.tagline,app.category,app.store]
+                         .some(v=>String(v).toLowerCase().includes(search)));
+  });
+  const tbody=$("appstore-list");
+  tbody.replaceChildren();
+  for (const app of matches.slice(0,appstoreVisibleCount)) {
+    const tr=document.createElement("tr");
+    cell(tr,app.title);
+    cell(tr,app.category);
+    cell(tr,app.store);
+    cell(tr,app.service_count);
+    const actions=document.createElement("td");
+    const button=document.createElement("button");
+    button.type="button";
+    button.textContent="Compatibility";
+    button.addEventListener("click",()=>appstoreDetails(app.id));
+    actions.appendChild(button);
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+  }
+  $("appstore-result-count").textContent=
+    "Showing "+Math.min(matches.length,appstoreVisibleCount)+
+    " / "+matches.length+" matching apps";
+  $("appstore-more").disabled=matches.length<=appstoreVisibleCount;
+}
+async function appstoreDetails(id) {
+  $("appstore-details").textContent="Checking CasaOS App Store compatibility…";
+  try {
+    const response=await fetch("/api/v1/stage/casaos-appstore?id="+encodeURIComponent(id),{
+      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+    });
+    const app=await response.json();
+    if (!response.ok)throw Error(app.error||"Compatibility unavailable");
+    const risks=Object.entries(app.compatibility)
+      .filter(([key,value])=>value===true && key!=="metadata_read")
+      .map(([key])=>key.replaceAll("_"," "));
+    $("appstore-details").textContent=app.title+": "+app.service_count+
+      " service(s). Review: "+(risks.join(", ")||"none indicated")+
+      ". Install from this store is still blocked until complete sandbox compatibility passes.";
+  } catch(err) {
+    $("appstore-details").textContent=err.message;
+  }
+}
+$("appstore-refresh").addEventListener("click",appstoreRefresh);
+$("appstore-search").addEventListener("input",()=>{
+  appstoreVisibleCount=30;appstoreRender();
+});
+$("appstore-category").addEventListener("change",()=>{
+  appstoreVisibleCount=30;appstoreRender();
+});
+$("appstore-source").addEventListener("change",()=>{
+  appstoreVisibleCount=30;appstoreRender();
+});
+$("appstore-more").addEventListener("click",()=>{
+  appstoreVisibleCount+=30;appstoreRender();
 });

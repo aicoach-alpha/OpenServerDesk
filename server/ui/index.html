@@ -88,6 +88,34 @@
     Compose features in isolated preproduction testing. The application's
     original data and Nextcloud external HDD are never copied or inspected.</p></div>
 </section>
+<section class="panel" aria-label="CasaOS App Store compatibility">
+ <div class="toolbar">
+  <div><h2>CasaOS App Store</h2>
+   <p>Browse the real local CasaOS and community store cache.
+   This preview does not install applications or alter existing Docker workloads.</p></div>
+  <button type="button" id="appstore-refresh" disabled>Load App Store</button>
+ </div>
+ <div class="progress-content">
+  <p id="appstore-status" role="status">Authenticate using the staging operator credential below.</p>
+  <div class="stage-control">
+   <label for="appstore-search">Find an app</label>
+   <input id="appstore-search" placeholder="Search applications…" autocomplete="off"/>
+   <label for="appstore-category">Category</label>
+   <select id="appstore-category"><option value="">All categories</option></select>
+   <label for="appstore-source">Store</label>
+   <select id="appstore-source"><option value="">All stores</option></select>
+  </div>
+  <p id="appstore-result-count" role="status">No catalogue loaded.</p>
+  <div class="table-scroll"><table>
+    <thead><tr><th>App</th><th>Category</th><th>Store</th><th>Services</th><th>Details</th></tr></thead>
+    <tbody id="appstore-list"></tbody>
+  </table></div>
+  <div class="stage-control">
+    <button type="button" id="appstore-more" disabled>Show more apps</button>
+  </div>
+  <p id="appstore-details" role="status">Select an app to see its staging compatibility.</p>
+ </div>
+</section>
 <section class="panel stage-apps" aria-label="Isolated staged Docker application lifecycle">
   <div class="toolbar">
     <div><h2>Stage app management</h2>
