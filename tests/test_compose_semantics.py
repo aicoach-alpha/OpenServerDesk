@@ -29,6 +29,24 @@ class ComposeSemanticsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.assess_config({"services":{"x":{"depends_on":["x"]}}})
 
+    def test_indirect_cyclic_dependency_fails_closed(self):
+        doc={"services":{
+            "first":{"image":"alpine","depends_on":["second"]},
+            "second":{"image":"alpine","depends_on":{"third":{"condition":"service_started"}}},
+            "third":{"image":"alpine","depends_on":["first"]},
+        }}
+        with self.assertRaisesRegex(ValueError, "cyclic"):
+            c.assess_config(doc)
+
+    def test_valid_chain_without_user_data_access(self):
+        doc={"services":{
+            "frontend":{"image":"nginx","depends_on":["db"]},
+            "db":{"image":"mariadb"},
+        }}
+        result=c.assess_config(doc)
+        self.assertEqual(result["service_dependencies"], 1)
+        self.assertFalse(result["runtime_parity_verified"])
+
     def test_unknown_keys_count_only(self):
         output=c.assess_config({"services":{"x":{"image":"busybox",
                                                "unrecognized_option":"sensitive"}}})

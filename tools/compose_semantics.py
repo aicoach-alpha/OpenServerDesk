@@ -32,6 +32,10 @@ def assess_config(doc):
     services=doc.get("services")
     if not isinstance(services,dict) or not services or len(services)>80:
         raise ValueError("invalid Compose services")
+    # Resolve dependency topology without starting applications, reading
+    # environment files, or expanding protected bind mounts. Compose
+    # specifications with cyclic depends_on are not safe to replay.
+    edges = {}
     result=[]
     unresolved=collections.Counter()
     unsafe=collections.Counter()
@@ -58,6 +62,7 @@ def assess_config(doc):
             raise ValueError("missing or malformed Compose service dependency")
         if name in dep_names:
             raise ValueError("self-dependent Compose service")
+        edges[name] = tuple(dep_names)
         unresolved.update(unknown)
         unsafe.update(unsafe_keys)
         result.append({
@@ -67,6 +72,20 @@ def assess_config(doc):
             "internal_dependency_count":len(dep_names),
             "invalid_dependency_conditions":invalid_conditions,
         })
+    visiting = set()
+    completed = set()
+    def visit(name):
+        if name in visiting:
+            raise ValueError("cyclic Compose service dependency")
+        if name in completed:
+            return
+        visiting.add(name)
+        for parent in edges[name]:
+            visit(parent)
+        visiting.remove(name)
+        completed.add(name)
+    for name in sorted(edges):
+        visit(name)
     # Only counts and generic, enum-like field NAMES leave this parser.
     # No user file paths, port values, env var keys or secrets.
     return {
