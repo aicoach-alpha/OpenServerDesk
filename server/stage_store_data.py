@@ -4,7 +4,7 @@ Checkpoint/restore require ALL owned containers stopped. The original
 production Compose paths and Nextcloud HDD are NEVER traversed or mounted.
 """
 from __future__ import annotations
-import json, os, re, secrets, shutil, stat
+import hashlib, json, os, re, secrets, shutil, stat
 from pathlib import Path
 from stage_apps import AppError
 from stage_store_compiler import STAGE
@@ -57,6 +57,33 @@ def _scan(src,quota):
             raise AppError("stage_data_size_limit",409)
     else:
         raise AppError("unsafe_stage_data_entry",403)
+
+def _digest_tree(root):
+    """Deterministic file-content digest, including relative paths and file sizes.
+
+    Checks staging-owned snapshot trees only. Reject special files/symlinks
+    and prevent changed copied bytes from passing restore verification.
+    """
+    root=Path(root)
+    _scan(root,[0,0])
+    h=hashlib.sha256()
+    count=0
+    for path in sorted(root.rglob("*")):
+        rel=path.relative_to(root).as_posix().encode("utf-8")
+        mode=path.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            h.update(b"D"+len(rel).to_bytes(4,"big")+rel)
+        elif stat.S_ISREG(mode):
+            h.update(b"F"+len(rel).to_bytes(4,"big")+rel)
+            size=path.stat().st_size
+            h.update(size.to_bytes(8,"big"))
+            with path.open("rb") as f:
+                for block in iter(lambda:f.read(1024*1024),b""):
+                    h.update(block)
+            count+=1
+        else:
+            raise AppError("unsafe_stage_data_entry",403)
+    return {"sha256":h.hexdigest(),"files":count}
 
 def _safe_copy(src,dst):
     _scan(src,[0,0])
@@ -111,8 +138,10 @@ def _save(project,manifest):
             target=tmp/"volumes"/rel
             target.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
             _safe_copy(source,target)
-        _write(tmp/"manifest.json",{"version":1,"id":name,
+        digests={rel:_digest_tree(tmp/"volumes"/rel) for rel,_ in sources}
+        _write(tmp/"manifest.json",{"version":2,"id":name,
             "volumes":[rel for rel,_ in sources],
+            "integrity":digests,
             "count":limit[0],"bytes":limit[1]})
         os.replace(tmp,root/name)
         _sync(root)
@@ -141,7 +170,7 @@ def _validate_snapshot(project,manifest,name):
     except (OSError,ValueError):
         raise AppError("invalid_stage_checkpoint_manifest",403)
     paths=_volumes(project,manifest)
-    if (doc.get("version")!=1 or doc.get("id")!=name or
+    if (doc.get("version") not in (1,2) or doc.get("id")!=name or
             doc.get("volumes")!=[rel for rel,_ in paths]):
         raise AppError("stage_checkpoint_volume_mismatch",403)
     result=[]
@@ -150,6 +179,12 @@ def _validate_snapshot(project,manifest,name):
         if source.is_symlink() or not source.is_dir():
             raise AppError("stage_checkpoint_data_missing",403)
         _scan(source,[0,0])
+        if doc["version"]==2:
+            stored=doc.get("integrity")
+            if (not isinstance(stored,dict)
+                    or set(stored)!={rel for rel,_ in paths}
+                    or stored.get(rel)!=_digest_tree(source)):
+                raise AppError("stage_checkpoint_integrity_mismatch",409)
         result.append((source,dst))
     return result
 
