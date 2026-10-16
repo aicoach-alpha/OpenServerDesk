@@ -16,6 +16,7 @@ from stage_storage import (listing as stage_files_list, read as stage_file_read,
                            download_binary as stage_download_bytes, MAX_FILE as STAGE_MAX_FILE)
 from stage_compose import catalog as stage_compose_catalog, list_projects as stage_compose_list, action as stage_compose_action
 from stage_topology import list_topologies as topology_list, action as topology_action
+from stage_topology_health import inspect as stage_topology_health
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
 from host_status import status as host_status, HostStatusError
 from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
@@ -107,6 +108,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400,{"error":"invalid_binary_file_query"})
             except AppError as err:
                 return self.respond(err.status,{"error":err.message})
+        if self.path == "/api/v1/stage/topologies/health":
+            try:
+                self._stage_auth()
+                return self.respond(200,stage_topology_health())
+            except AppError as err:
+                return self.respond(err.status,{"error":err.message})
         if self.path == "/api/v1/stage/topologies":
             try:
                 self._stage_auth()
@@ -196,7 +203,7 @@ class Handler(BaseHTTPRequestHandler):
                         or report["metric"] != "weighted_scope_accepted_not_time_estimate"
                         or type(report["progress_percent"]) is not int
                         or not 0 <= report["progress_percent"] <= 100
-                        or len(report["milestones"]) != 10
+                        or len(report["milestones"]) != 11
                         or report["migration_allowed"] is not False
                         or not all(isinstance(x, dict) and
                                    set(x) == {"id","label","weight_percent",

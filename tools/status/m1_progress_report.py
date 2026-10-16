@@ -17,7 +17,7 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path("/opt/openserverdesk-dev/runtime-stage/progress")
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.23_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.26_amd64.deb")
 URL = "http://127.0.0.1:18690"
 
 # Explicitly frozen acceptance criteria/weights. Add new independently
@@ -29,7 +29,8 @@ GATES = (
     ("data_inventory", "Real Docker bind/data coverage inventory", 4),
     ("fixture_recovery", "Two-project staged SQLite/Compose/bind restore", 8),
     ("config_recovery", "Real SSD backup and independent restore of platform configuration only", 8),
-    ("full_runtime", "Full authenticated AppManagement/LocalStorage workflows", 18),
+    ("restricted_staging_runtime", "Signed authenticated staging app/storage/Compose workflows (not CasaOS parity)", 9),
+    ("full_runtime", "Production-equivalent AppManagement/LocalStorage workflows", 9),
     ("config_atomicity", "Proven consistent cross-service configuration migration", 12),
     ("cutover_rollback", "Production-equivalent safe activation + full rollback", 20),
     ("security_release", "Signed release + independent security acceptance", 10),
@@ -70,7 +71,7 @@ def collect():
     message = command("git", "-C", str(ROOT), "show", "-s", "--format=%s", "HEAD")
     status = command("git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no")
     ver = command("dpkg-deb", "--field", str(PKG), "Version")
-    pkg_files = command("dpkg-deb", "--contents", str(PKG), timeout=16) if ver == "0.6.23" else ""
+    pkg_files = command("dpkg-deb", "--contents", str(PKG), timeout=16) if ver == "0.6.26" else ""
     required = (
         "usr/lib/openserverdesk/bin/casaos",
         "usr/lib/openserverdesk/bin/CasaOS-Gateway",
@@ -111,6 +112,7 @@ def collect():
         # Full release acceptance is distinct from real but NON-atomic
         # scoped configuration recovery performed on the NAS SSD.
         "config_recovery": False,
+        "restricted_staging_runtime": False,
         "full_runtime": False,
         "config_atomicity": False,
         "cutover_rollback": False,
@@ -126,7 +128,7 @@ def collect():
         attestation = json.loads(proof_file.read_text())
         recovery = attestation["configuration_recovery_acceptance"]
         checks["config_recovery"] = (
-            payload and ver == "0.6.23"
+            payload and ver == "0.6.26"
             and attestation["migration_allowed"] is False
             and recovery["platform_backup_verified"] is True
             and recovery["staging_restore_verified"] is True
@@ -136,11 +138,38 @@ def collect():
             and recovery["verified_sqlite_dbs"] >= 3)
     except (OSError, ValueError, TypeError, KeyError):
         checks["config_recovery"] = False
+    # Explicitly split the former single 18% runtime gate into a 9% verified
+    # RESTRICTED staging component and a 9% true CasaOS parity gate. This
+    # does NOT alter the total 100% scope or accept production equivalence.
+    try:
+        proof = json.loads(Path(
+            "/opt/openserverdesk-dev/runtime-stage/"
+            "M1_STAGE_RUNTIME_ACCEPTANCE_V0626.json").read_text())
+        from hashlib import sha256
+        with PKG.open("rb") as stream:
+            actual_hash = sha256(stream.read()).hexdigest()
+        checks["restricted_staging_runtime"] = bool(
+            payload and healthy and healthy.get("version") == "0.6.26"
+            and proof["schema_version"] == 1
+            and proof["scope"] == "RESTRICTED_STAGING_WORKFLOWS_ONLY"
+            and proof["live_package_version"] == "0.6.26"
+            and proof["signed_package_sha256"] == actual_hash
+            and proof["staging_http_protected_endpoints"] >= 6
+            and proof["live_docker_inventory_verified"] is True
+            and proof["live_docker_resource_metrics_verified"] is True
+            and proof["restricted_multiservice_lifecycle_e2e_recorded"] is True
+            and proof["stage_role_based_authorization_e2e_recorded"] is True
+            and proof["production_equivalence_proven"] is False
+            and proof["nextcloud_user_data_inspected"] is False
+            and proof["production_modified"] is False
+            and proof["migration_allowed"] is False)
+    except (OSError, ValueError, TypeError, KeyError):
+        checks["restricted_staging_runtime"] = False
     milestones = [
         {"id": id_, "label": label, "weight_percent": weight, "verified": bool(checks[id_]),
          "evidence_class": (
              "live_readonly" if id_ in ("docker_ui", "data_inventory")
-             else "artifact_and_recorded_test" if id_ in ("payload", "six_boot", "fixture_recovery", "config_recovery")
+             else "artifact_and_recorded_test" if id_ in ("payload", "six_boot", "fixture_recovery", "config_recovery", "restricted_staging_runtime")
              else "unverified"
          )}
         for id_, label, weight in GATES
