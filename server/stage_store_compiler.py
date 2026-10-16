@@ -15,6 +15,21 @@ NAME=re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,35}\Z")
 IMAGE=re.compile(r"[A-Za-z0-9][A-Za-z0-9./_:-]{1,255}\Z")
 DIGEST=re.compile(r"sha256:[0-9a-f]{64}\Z")
 STAGE="/opt/openserverdesk-dev/runtime-stage/stage-app-manager/store-compiled"
+# The first egress-capable pilot is intentionally exact-ID and exact-tag
+# restricted, not a generic "enable the internet for the entire store" switch.
+EGRESS_PILOT_ID="default:MySpeed"
+EGRESS_PILOT_IMAGE="germannewsmaker/myspeed:1.0.8"
+
+def _outbound_pilot(app_id, doc, plan):
+    if app_id!=EGRESS_PILOT_ID or len(plan["services"])!=1:
+        return False
+    if len(doc.get("services",{}))!=1 or "myspeed" not in doc["services"]:
+        return False
+    source=doc["services"]["myspeed"]
+    return (source.get("image")==EGRESS_PILOT_IMAGE
+            and source.get("network_mode")=="bridge"
+            and plan["services"][0]["name"]=="myspeed")
+
 
 def resolve_image(source, run=None):
     if not isinstance(source,str) or not IMAGE.fullmatch(source):
@@ -159,6 +174,7 @@ def preview(app_id):
     known,doc=_find_catalog_definition(app_id)
     plan=analyze(doc)
     return {"id":app_id,"title":known["title"],
+            "outbound_network_pilot":_outbound_pilot(app_id,doc,plan),
             "service_count":len(plan["services"]),
             "startup_order":plan["startup_order"],
             "stage_volume_count":plan["volume_count"],
@@ -178,6 +194,8 @@ def compile_stage(project, app_id, host_port=None):
     plan=analyze(doc)
     if not plan["all_images_cached"]:
         raise AppError("one_or_more_images_not_cached",409)
+    outbound=_outbound_pilot(app_id,doc,plan)
+    network="egress" if outbound else "isolated"
     services={}
     published=False
     for spec in plan["services"]:
@@ -190,7 +208,7 @@ def compile_stage(project, app_id, host_port=None):
             })
         result={
             "image":spec["immutable_image"],"pull_policy":"never",
-            "networks":["isolated"],"cap_drop":["ALL"],
+            "networks":[network],"cap_drop":["ALL"],
             "security_opt":["no-new-privileges:true"],
             "user":"1000:1000","pids_limit":64,"mem_limit":"256m",
             "restart":"no",
@@ -209,4 +227,5 @@ def compile_stage(project, app_id, host_port=None):
             published=True
         services[name]=result
     return {"name":project,"services":services,
-            "networks":{"isolated":{"internal":True}}}
+            "networks":({"egress":{"driver":"bridge","internal":False}}
+                        if outbound else {"isolated":{"internal":True}})}

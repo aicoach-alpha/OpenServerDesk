@@ -51,14 +51,28 @@ def _published_port(manifest):
     if not match:raise AppError("unsafe_compiled_ports",403)
     return int(match.group(1))
 
+def _network_contract(manifest):
+    networks=manifest.get("networks")
+    if networks=={"isolated":{"internal":True}}:
+        return "isolated",True
+    if networks=={"egress":{"driver":"bridge","internal":False}}:
+        services=manifest.get("services",{})
+        if (not isinstance(services,dict) or set(services)!={"myspeed"}
+                or (services["myspeed"].get("labels") or {}).get(
+                    "osd.m1.compiled.app")!="default:MySpeed"):
+            raise AppError("stage_outbound_policy_denied",403)
+        return "egress",False
+    raise AppError("compiled_stage_network_definition_changed",403)
+
 def _network_check(project,manifest,cfg,host,obj):
     if cfg.get("network_mode")=="none":
         if host.get("NetworkMode")!="none" or host.get("PortBindings"):
             raise AppError("compiled_stage_network_violation",403)
         return
-    if cfg.get("networks")!=["isolated"] or manifest.get("networks")!={"isolated":{"internal":True}}:
+    name,internal=_network_contract(manifest)
+    if cfg.get("networks")!=[name]:
         raise AppError("compiled_stage_network_definition_changed",403)
-    network=project+"_isolated"
+    network=project+"_"+name
     if host.get("NetworkMode")!=network:
         raise AppError("compiled_stage_network_changed",403)
     try:
@@ -66,10 +80,10 @@ def _network_check(project,manifest,cfg,host,obj):
     except (ValueError,TypeError,IndexError):
         raise AppError("compiled_stage_network_inspection_failed",503)
     labels=info.get("Labels") or {}
-    if (info.get("Name")!=network or info.get("Internal") is not True or
+    if (info.get("Name")!=network or info.get("Internal") is not internal or
             info.get("Driver")!="bridge" or
             labels.get("com.docker.compose.project")!=project or
-            labels.get("com.docker.compose.network")!="isolated"):
+            labels.get("com.docker.compose.network")!=name):
         raise AppError("compiled_stage_foreign_network",403)
     declared=cfg.get("ports",[])
     portmap=host.get("PortBindings") or {}
@@ -182,8 +196,9 @@ def _validate(project,manifest,owner):
     if not isinstance(manifest,dict) or set(manifest) not in (
         {"name","services"},{"name","services","networks"}) or manifest["name"]!=project:
         raise AppError("invalid_compiled_manifest",403)
-    if "networks" in manifest and manifest["networks"]!={"isolated":{"internal":True}}:
-        raise AppError("unsafe_compiled_networks",403)
+    network=None
+    if "networks" in manifest:
+        network,internal=_network_contract(manifest)
     services=manifest["services"]
     if not isinstance(services,dict) or not 1<=len(services)<=6:
         raise AppError("invalid_compiled_services",403)
@@ -203,8 +218,8 @@ def _validate(project,manifest,owner):
                   "osd.m1.compiled.app":cfg.get("labels",{}).get("osd.m1.compiled.app"),
                   "osd.m1.compiled.owner":owner}
         network_ok=(cfg.get("network_mode")=="none" and "networks" not in manifest and not cfg.get("networks"))
-        network_ok=network_ok or (cfg.get("networks")==["isolated"] and
-            "network_mode" not in cfg and "networks" in manifest)
+        network_ok=network_ok or (network is not None
+            and cfg.get("networks")==[network] and "network_mode" not in cfg)
         if (not network_ok or cfg.get("user")!="1000:1000"
             or cfg.get("pull_policy")!="never" or cfg.get("cap_drop")!=["ALL"]
             or cfg.get("security_opt")!=["no-new-privileges:true"]
@@ -373,14 +388,15 @@ def _down_owned(project,manifest,owner):
         # Keep actions constrained to verified full IDs.
         docker("rm","--force",item["id"],timeout=30)
     if "networks" in manifest:
-        network=project+"_isolated"
+        name,internal=_network_contract(manifest)
+        network=project+"_"+name
         try: info=json.loads(docker("network","inspect",network))[0]
         except (ValueError,IndexError,TypeError):
             raise AppError("compiled_stage_network_cleanup_unverified",503)
         labels=info.get("Labels") or {}
-        if (info.get("Name")!=network or info.get("Internal") is not True or
+        if (info.get("Name")!=network or info.get("Internal") is not internal or
                 labels.get("com.docker.compose.project")!=project or
-                labels.get("com.docker.compose.network")!="isolated" or
+                labels.get("com.docker.compose.network")!=name or
                 info.get("Containers")):
             raise AppError("compiled_stage_network_cleanup_unverified",403)
         docker("network","rm",network,timeout=30)
@@ -394,6 +410,7 @@ def _summary(project,entry):
                          "oom_killed":s["oom_killed"]}
                         for s in sorted(services.values(),key=lambda x:x["name"])],
             "all_running":all(x["running"] for x in services.values()),
+            "outbound_network_pilot":_network_contract(manifest)[0]=="egress" if "networks" in manifest else False,
             "image_configuration_rollback":True,
             "application_data_rollback":False,
             "manual_stage_volume_backup_restore":True,
@@ -437,14 +454,12 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             if docker("ps","--all","--quiet","--no-trunc",
                       "--filter","label=com.docker.compose.project="+project):
                 raise AppError("compiled_stage_project_name_collision",409)
-            # Refuse a pre-existing network of the same generated name.
-            try:
+            # Refuse ALL pre-existing network names within this generated namespace.
+            for network_name in ("isolated","egress"):
                 existing=docker("network","ls","--quiet","--filter",
-                                "name=^"+project+"_isolated$")
-            except AppError:
-                raise
-            if existing:
-                raise AppError("staging_network_name_collision",409)
+                                "name=^"+project+"_"+network_name+"$")
+                if existing:
+                    raise AppError("staging_network_name_collision",409)
             raw=compile_stage(project,app_id,host_port=_pick_port(project))
             owner=user_registry()["owner"]
             folder=_folder(project)
@@ -491,16 +506,17 @@ def operation(action,app_id=None,project=None,checkpoint=None):
                     if ident:
                         docker("rm","--force",ident)
                 if "networks" in manifest:
-                    network=project+"_isolated"
+                    name,internal=_network_contract(manifest)
+                    network=project+"_"+name
                     found=docker("network","ls","--quiet","--filter","name=^"+network+"$")
                     if found:
                         try: info=json.loads(docker("network","inspect",network))[0]
                         except (TypeError,ValueError,IndexError):
                             raise AppError("compiled_stage_network_cleanup_unverified",503)
                         labels=info.get("Labels") or {}
-                        if (info.get("Name")!=network or info.get("Internal") is not True or
+                        if (info.get("Name")!=network or info.get("Internal") is not internal or
                                 labels.get("com.docker.compose.project")!=project or
-                                labels.get("com.docker.compose.network")!="isolated" or
+                                labels.get("com.docker.compose.network")!=name or
                                 info.get("Containers")):
                             raise AppError("compiled_stage_network_cleanup_unverified",403)
                         docker("network","rm",network)

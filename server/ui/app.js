@@ -1056,6 +1056,9 @@ async function storeCompilerPreview(id) {
       "; isolated volumes: "+data.stage_volume_count+
       "; immutable images cached: "+data.cached_immutable_images+
       "/"+data.service_count+
+      ". Network: "+(data.outbound_network_pilot?
+      "explicit MySpeed outbound pilot; private LAN is not separately firewalled":
+      "internal-only")+
       ". Original ports, env and host bind sources discarded. "+
       "App runtime functionality not yet verified.";
   } catch(err) {
@@ -1088,7 +1091,9 @@ async function compiledRefresh(){
       cell(row,app.app_id+" · "+app.project);
       cell(row,app.services.map(x=>x.name+":"+(x.running?"running":
         (x.status==="exited"?"exited (code "+String(x.exit_code)+")":"stopped"))).join(", "));
-      cell(row,String(app.revision)+(app.web_url?" · localhost web: "+app.web_url:""));
+      cell(row,String(app.revision)+(app.outbound_network_pilot?
+        " · outbound staging bridge (not LAN-isolated)":" · internal-only staging bridge")+
+        (app.web_url?" · server loopback: "+app.web_url:""));
       const controls=document.createElement("td");
       const running=app.services.some(x=>x.running);
       const actions=app.data_recovery_pending?["recover-data"]:
