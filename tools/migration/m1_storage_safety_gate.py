@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed independent recovery-media preflight for LIVE CasaOS sources.
+"""Config-only recovery-media preflight; never includes external Nextcloud data.
 
 Never reads application contents, copies data or mutates Docker. The source
 list comes solely from fresh Docker inspection, never from an HTTP caller.
@@ -13,7 +13,8 @@ from pathlib import Path
 from m1_cold_backup import _paths_fresh
 
 STAGING = Path("/opt/openserverdesk-dev/runtime-stage")
-LOCAL_MOUNTS = (Path("/"), Path("/mnt/ssd-turbo"), Path("/mnt/data"))
+# Deliberately NEVER inspect /mnt/data or other external user data mounts.
+LOCAL_MOUNTS = (Path("/"), Path("/mnt/ssd-turbo"))
 
 
 def inspect(target: Path | None = None):
@@ -44,7 +45,10 @@ def inspect(target: Path | None = None):
             "capacity_sized_for_full_restore": False,
         }
     return {
-        "assessment": "LIVE_SOURCE_DEVICE_ISOLATION_READ_ONLY",
+        "assessment": "CASAOS_CONFIG_ONLY_DEVICE_ISOLATION_READ_ONLY",
+        "external_user_data_copied": False,
+        "external_user_data_inspected": False,
+        "selected_platform_config_source_count": len(sources),
         "source_count": len(sources),
         "source_filesystem_count": len(source_fs),
         "running_containers": report["running_container_count"],
@@ -53,7 +57,7 @@ def inspect(target: Path | None = None):
         "production_modified": False,
         # Full sizing and restore proof are separate safety requirements.
         "migration_allowed": False,
-        "status": "blocked_until_independent_restored_backup_verified",
+        "status": "blocked_until_platform_config_recovery_verified",
     }
 
 

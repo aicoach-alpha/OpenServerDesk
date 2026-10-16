@@ -9,7 +9,7 @@ from pathlib import Path
 SERVICES = ["casaos", "casaos-gateway", "casaos-user-service",
             "casaos-app-management", "casaos-local-storage", "casaos-message-bus"]
 PATHS = ["/etc/casaos", "/var/lib/casaos", "/var/lib/casaos/apps",
-         "/usr/share/casaos", "/mnt/ssd-turbo", "/mnt/data"]
+         "/usr/share/casaos", "/mnt/ssd-turbo"]
 
 def run(*args):
     p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=12)
@@ -28,7 +28,6 @@ def inspect():
         "core_services_running": all(x == "active" for x in services.values()),
         "app_config_present": paths["/etc/casaos"]["exists"] and paths["/var/lib/casaos/apps"]["exists"],
         "docker_detected": run("docker", "info", "--format", "{{.ServerVersion}}")[0] == 0,
-        "data_hdd_mounted": paths["/mnt/data"]["mountpoint"],
         "ssd_mounted": paths["/mnt/ssd-turbo"]["mountpoint"],
     }
     return {"product":"OpenServerDesk","mode":"READ_ONLY","casaos_version":version,

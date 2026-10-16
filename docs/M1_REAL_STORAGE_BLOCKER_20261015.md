@@ -1,3 +1,8 @@
+> SUPERSEDED (16 Oct 2026): Previous backup estimates treated the external HDD
+> Nextcloud user-upload content as migratable CasaOS configuration. This is
+> incorrect and the 1-2 TiB storage recommendation is withdrawn. See
+> M1_PLATFORM_SCOPE_CORRECTION_20261016.md. NEVER copy user files on /mnt/data.
+
 # M1 external recovery storage — 15 October 2026, read-only
 
 Direct SentinelX inspection of real Docker source paths and NAS filesystems:

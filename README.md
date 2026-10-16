@@ -32,6 +32,12 @@ proof gates and 15-minute host-side status history (see
 docs/M1_PROGRESS_MONITOR_20261015.md). The score tracks accepted milestone
 scope, not remaining time; it does NOT automatically increase every interval.
 
+Platform configuration only: Nextcloud user uploads and external HDD
+user data are excluded from migration backup selection. Docker data
+mount locations remain unchanged. The previously suggested 1-2 TiB
+extra HDD is NOT required by this CasaOS replacement scope. See
+docs/M1_PLATFORM_SCOPE_CORRECTION_20261016.md.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout

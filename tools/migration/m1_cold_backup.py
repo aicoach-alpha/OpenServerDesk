@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual full-CasaOS-appdata cold backup; production-safe fail-closed gating.
+"""Scoped CasaOS platform config backup; NEVER Nextcloud user data.
 
 A fresh Docker inspection defines sources; callers cannot supply arbitrary
 backup source paths. Real backup deliberately REFUSES while any Docker
@@ -74,7 +74,15 @@ def _mountpoints():
     return points
 
 
-def _paths_fresh():
+def _paths_fresh(*, fixture_mode=False):
+    if not fixture_mode:
+        # The live scope is platform configuration only. Existing Docker
+        # bind mounts are preserved as references; user files are not copied.
+        # Do not call collect(): it stats EVERY original bind including
+        # external Nextcloud user data which is outside migration scope.
+        from m1_platform_scope import select
+        return select()
+    # Fixture-only compatibility, no production path supplied by caller.
     report = collect()
     if report.get("production_modified") is not False:
         raise BackupRejected("unexpected inventory schema")
@@ -124,7 +132,7 @@ def _independent_disk(destination, sources):
 
 
 def plan(*, fixture_mode=False):
-    report, files = _paths_fresh()
+    report, files = _paths_fresh(fixture_mode=fixture_mode)
     independent = _independent_disk(BACKUPS, files)
     return {
         "plan_format": LABEL,
@@ -134,8 +142,14 @@ def plan(*, fixture_mode=False):
         "writable_live_mounts": report["live_writable_mount_count"],
         "compose_project_count": report["compose_project_count"],
         "bind_source_count": report["unique_bind_source_count"],
-        "additional_compose_sources": len(files)-report["unique_bind_source_count"],
+        "additional_compose_sources": (
+            len(files)-report["unique_bind_source_count"] if fixture_mode
+            else None),
+        "selected_platform_config_sources": len(files),
+        "protected_bind_references_skipped": report.get("protected_bind_references_skipped", 0),
         "total_unique_backup_sources": len(files),
+        "backup_scope": "platform_configs_only_no_external_user_uploads",
+        "external_user_data_copied": False,
         "independent_backup_destination": independent,
         "cold_backup_authorized": (report["running_container_count"] == 0 and
                                    report["live_writable_mount_count"] == 0 and
@@ -229,7 +243,7 @@ def _same_source_data(before, copied):
 def cold_backup(*, fixture_mode=False):
     if os.geteuid() != 0:
         raise BackupRejected("cold backup requires dedicated privileged operator")
-    report, files = _paths_fresh()
+    report, files = _paths_fresh(fixture_mode=fixture_mode)
     # Require ALL original Docker writers (including unexpected read-only
     # mounts) to be stopped. No automatic downtime or stop/restart action.
     if report["running_container_count"] or report["live_writable_mount_count"]:
@@ -288,7 +302,7 @@ def cold_backup(*, fixture_mode=False):
                 raise BackupRejected("excessive backup file entry count")
             manifest["sources"].append({"original_path":src, "copy_root":dirname,
                                         "items":rows})
-        new_report, new_files = _paths_fresh()
+        new_report, new_files = _paths_fresh(fixture_mode=fixture_mode)
         if (new_files != files or new_report["running_container_count"]
                 or new_report["live_writable_mount_count"]
                 or new_report["container_count"] != report["container_count"]):
@@ -378,7 +392,7 @@ def restore_to_staging(name, *, fixture_mode=False):
     if RECOVERED.stat().st_mode & 0o077:
         raise BackupRejected("recovery directory must be root private")
     if not fixture_mode:
-        _report, actual_sources = _paths_fresh()
+        _report, actual_sources = _paths_fresh(fixture_mode=fixture_mode)
         if not _independent_disk(RECOVERED, actual_sources):
             raise BackupRejected("INDEPENDENT_RESTORE_TARGET_REQUIRED")
     dest = RECOVERED / name

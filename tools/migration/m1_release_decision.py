@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.10_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.11_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -30,7 +30,7 @@ def decide():
     pkg_version = command("dpkg-deb", "--field", str(PKG), "Version")
     if (pkg_name.returncode or pkg_version.returncode
             or pkg_name.stdout.strip() != "openserverdesk-m1-candidate"
-            or pkg_version.stdout.strip() != "0.6.10"):
+            or pkg_version.stdout.strip() != "0.6.11"):
         raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {
@@ -70,28 +70,29 @@ def decide():
         blockers["complete_activation_rollback_controller"] = (
             "Migration installer explicitly reports activation/rollback not implemented."
         )
-    if "external_hdd_copied" in (ROOT/"tools/migration/backup_restore.py").read_text():
-        blockers["external_bind_and_app_data_recovery"] = (
-            "Current migration backup/restore does not cover full external "
-            "app and Docker bind-mount data or Compose lifecycle."
-        )
-    # Distinct-device recovery is mandatory: sources span the NAS drives
-    # including its large HDD; copying onto a drive containing any source
-    # does not count as an independent backup.
+    # Replacing CasaOS is NOT a migration of Docker user bind data or
+    # Nextcloud uploads. Only platform configuration and Compose definitions
+    # require backup/restore; all user-data mount references stay unchanged.
+    blockers["platform_configuration_recovery"] = (
+        "CasaOS configuration, internal SQLite and selected Compose definitions "
+        "must be verified in an isolated recovery, without moving or reading "
+        "external HDD/Nextcloud user uploads."
+    )
     try:
         from m1_storage_safety_gate import inspect as inspect_storage
         storage = inspect_storage()
         if not storage["independent_target"]["supplied"]:
-            blockers["independent_backup_destination"] = (
-                "No independently mounted backup destination is configured. "
-                "Real Docker/Compose data spans multiple NAS disks; an external "
-                "independent backup and full recovered-data proof are required."
+            blockers["platform_config_backup_destination"] = (
+                "Scoped CasaOS/Compose config recovery destination is not yet "
+                "configured and verified. A 2 TB copy of Nextcloud user uploads "
+                "is NOT part of M1 migration."
             )
     except Exception:
-        storage = {"status":"storage_safety_gate_unavailable",
-                   "migration_allowed":False}
-        blockers["independent_backup_destination"] = (
-            "Source-disk isolation cannot be verified; fail closed."
+        storage = {"status": "platform_config_scope_unavailable",
+                   "migration_allowed": False}
+        blockers["platform_config_backup_destination"] = (
+            "Scoped platform config backup preflight unavailable; fail closed. "
+            "External HDD user data must not be accessed."
         )
     blockers["signed_release_and_security_acceptance"] = (
         "No validated signed production release or completed independent M1 "

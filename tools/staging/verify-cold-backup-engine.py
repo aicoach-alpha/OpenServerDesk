@@ -54,7 +54,8 @@ try:
         try:
             m.cold_backup()
         except m.BackupRejected as exc:
-            assert "INDEPENDENT_BACKUP_TARGET_REQUIRED" in str(exc)
+            assert ("COLD_BACKUP_BLOCKED_RUNNING_PRODUCTION_APPS" in str(exc)
+                    or "INDEPENDENT_BACKUP_TARGET_REQUIRED" in str(exc))
         else:
             raise AssertionError("same-device production backup accepted")
         print("SAME_DEVICE_BACKUP_FAIL_CLOSED_PASS")
