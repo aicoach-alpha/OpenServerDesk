@@ -37,3 +37,9 @@ still require authentic acceptance evidence.
 
 Production untouched. migration_allowed=false. No requirement to copy
 Nextcloud user uploads or replace/migrate its external HDD.
+
+Additional hardening: legacy Docker bind inventory and topology are also
+forbidden to stat or statvfs external user-data paths. They keep only
+opaque path references furnished by Docker Engine. A synthetic guard
+replacing filesystem stat APIs with throwing functions confirmed this
+boundary. No real Nextcloud user file was opened for these tests.

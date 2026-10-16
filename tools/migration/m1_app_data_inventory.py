@@ -15,6 +15,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from m1_platform_scope import protected
 
 STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
 OUTPUT = STAGE / "M1_PRIVATE_APP_DATA_INVENTORY.json"
@@ -140,6 +141,16 @@ def collect():
         })
     for path, item in sources.items():
         p = Path(path)
+        # Protected Nextcloud/HDD user data is an opaque EXISTING mount
+        # reference. Do not stat, open, traverse or read metadata from it.
+        if protected(p):
+            item["exists"] = None
+            item["symlink"] = None
+            item["file_type"] = "preserved_external_user_data_not_inspected"
+            item["excluded_from_migration"] = True
+            item["requires_operator_review"] = False
+            continue
+        item["excluded_from_migration"] = False
         # Never dereference untrusted symlinks during planning.
         item["exists"] = p.exists()
         item["symlink"] = p.is_symlink()
@@ -155,8 +166,12 @@ def collect():
         group["working_directories"] = sorted(group["working_directories"])
         group["compose_files"] = sorted(group["compose_files"])
         group["file_status"] = [
-            {"path": f, "exists": Path(f).is_file(),
-             "symlink": Path(f).is_symlink()}
+            ({"path": f, "exists": False, "symlink": False,
+              "excluded_from_migration": True}
+             if protected(Path(f)) else
+             {"path": f, "exists": Path(f).is_file(),
+              "symlink": Path(f).is_symlink(),
+              "excluded_from_migration": False})
             for f in group["compose_files"]
         ]
     unsafe_binds = [p for p, m in sources.items() if m["requires_operator_review"]]

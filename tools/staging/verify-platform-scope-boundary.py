@@ -52,3 +52,53 @@ with patch.object(scope,"docker",side_effect=docker_stub), \
     assert "/mnt/data/docker-compose.yml" not in selected
 print("NEXTCLOUD_USER_HDD_NOT_OPENED_OR_COPIED_PASS")
 print("CONFIG_ONLY_SCOPE_WITH_PROTECTED_BINDS_PASS")
+
+# Legacy inventory and topology must also treat the HDD as opaque.
+from unittest.mock import patch as patched
+import m1_app_data_inventory as inventory
+import m1_topology_preflight as topology
+original_exists = Path.exists
+original_lstat = Path.lstat
+original_statvfs = topology.os.statvfs
+protected_file = "/mnt/data/nextcloud/user-uploads"
+fake_container = {
+    "Id": fake_id, "Name":"/nc", "State":{"Running": True},
+    "Config": {"Image":"test-only", "Labels": {
+        "com.docker.compose.project":"nextcloud",
+        "com.docker.compose.project.config_files":"/mnt/data/compose.yaml"
+    }},
+    "Mounts":[{"Type":"bind","Source": protected_file,
+               "Destination":"/files","RW":True}]
+}
+
+def fake_inspect(kind, names):
+    if kind=="volume":
+        assert names == []
+        return []
+    assert kind=="container"
+    return [fake_container]
+
+def guarded_exists(self):
+    return guard(self,original_exists)
+def guarded_lstat(self):
+    return guard(self,original_lstat)
+def guarded_statvfs(path):
+    if scope.protected(Path(path)):
+        raise AssertionError("statvfs on protected Nextcloud data")
+    return original_statvfs(path)
+
+with patched.object(inventory, "container_ids", return_value=[fake_id]), \
+     patched.object(inventory, "inspect_many", side_effect=fake_inspect), \
+     patched.object(Path, "exists", guarded_exists), \
+     patched.object(Path, "lstat", guarded_lstat), \
+     patched.object(Path, "is_file", lambda self:guard(self,real_file)), \
+     patched.object(Path, "is_dir", lambda self:guard(self,real_dir)), \
+     patched.object(Path, "is_symlink", lambda self:guard(self,real_symlink)), \
+     patched.object(topology.os, "statvfs", guarded_statvfs):
+    report=inventory.collect()
+    assert report["bind_sources"][protected_file]["excluded_from_migration"]
+    assert report["compose_projects"]["nextcloud"]["file_status"][0]["excluded_from_migration"]
+    topo=topology.analyze(report)
+    assert topo["private"]["binds"][protected_file]["excluded_from_migration"]
+    assert topo["filesystem_count"] == 0
+print("LEGACY_INVENTORY_TOPOLOGY_NO_USER_HDD_STAT_PASS")

@@ -15,6 +15,7 @@ import stat
 import tempfile
 from collections import defaultdict
 from pathlib import Path
+from m1_platform_scope import protected
 
 DEFAULT_INPUT=Path('/opt/openserverdesk-dev/runtime-stage/M1_PRIVATE_APP_DATA_INVENTORY.json')
 PRIVATE_OUT=Path('/opt/openserverdesk-dev/runtime-stage/M1_PRIVATE_TOPOLOGY_PREFLIGHT.json')
@@ -40,6 +41,18 @@ def analyze(report):
         path=Path(name)
         if '..' in path.parts or path==Path('/'):
             raise ValueError('ambiguous source path')
+        consumers=detail.get('consumers')
+        if not isinstance(consumers,list):
+            raise ValueError('invalid consumers')
+        writable=sum(bool(c.get('writable')) for c in consumers if isinstance(c,dict))
+        if protected(path):
+            # Never stat or statvfs external Nextcloud/user content mounts.
+            # Retain the Docker reference only, as opaque persistent storage.
+            rows[name]={'kind':'protected_external_user_data',
+                        'device':'not_inspected', 'writable_consumers':writable,
+                        'consumer_count':len(consumers),'needs_review':False,
+                        'excluded_from_migration':True}
+            continue
         st=path.lstat()
         if stat.S_ISLNK(st.st_mode):
             kind='symlink'
@@ -49,10 +62,6 @@ def analyze(report):
             kind='file'
         else:
             kind='special'
-        consumers=detail.get('consumers')
-        if not isinstance(consumers,list):
-            raise ValueError('invalid consumers')
-        writable=sum(bool(c.get('writable')) for c in consumers if isinstance(c,dict))
         fs=os.statvfs(path)
         dev=str(st.st_dev)
         entry=filesystems[dev]
@@ -61,7 +70,8 @@ def analyze(report):
         entry['mount_points'].add(str(path.anchor))
         rows[name]={'kind':kind,'device':dev,'writable_consumers':writable,
                     'consumer_count':len(consumers),
-                    'needs_review':kind not in ('directory','file') or writable>0}
+                    'needs_review':kind not in ('directory','file') or writable>0,
+                    'excluded_from_migration':False}
     paths=sorted((Path(k) for k in rows),key=lambda p:(len(p.parts),str(p)))
     nested=[]
     for index,parent in enumerate(paths):
@@ -92,8 +102,8 @@ def analyze(report):
        'required_gates':[
           'All writable applications quiesced and app-consistent snapshots proven',
           'Deduplicate nested/overlapping sources without crossing volume boundaries',
-          'Disk space and external filesystem availability sufficient for snapshot and restoration',
-          'Checksum-verified restoration of every real bind and Compose definition',
+          'Scoped platform configuration backup destination verified',
+          'Checksum-verified restoration of selected platform configs only; external user data mounts preserved unchanged',
           'Owner, ACL, UID/GID and filesystem metadata preserved',
           'Application resume and rollback proven using isolated equivalent mounts',
        ],
