@@ -13,6 +13,10 @@ import time
 from pathlib import Path
 import yaml
 
+# LibYAML's safe implementation accepts only standard YAML data types.
+# Fallback remains safe when the optional C extension is not installed.
+SAFE_LOADER=getattr(yaml,"CSafeLoader",yaml.SafeLoader)
+
 STORE_ROOT = Path("/var/lib/casaos/appstore")
 ALLOWED_STORES = {"default", "github.com", "casaos.app"}
 COMPOSE_FILES = {"docker-compose.yml", "docker-compose.yaml"}
@@ -22,7 +26,7 @@ TTL_SECONDS = 120
 MAX_APPS = 1500
 ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,110}$")
 _TEXT_LIMIT = 200
-_state = {"until":0, "data":None}
+_state = {"until":0, "data":None, "paths":{}}
 _guard = threading.Lock()
 
 def _text(x, limit=_TEXT_LIMIT):
@@ -75,7 +79,7 @@ def _source_files(root):
 def _parse(namespace, path):
     try:
         with path.open("r",encoding="utf-8") as f:
-            doc=yaml.safe_load(f)
+            doc=yaml.load(f,Loader=SAFE_LOADER)
     except (OSError, UnicodeError, yaml.YAMLError):
         return None
     if not isinstance(doc,dict) or not isinstance(doc.get("services"),dict):
@@ -115,8 +119,9 @@ def _parse(namespace, path):
         },
     }
 
-def _index(root):
+def _index(root, with_paths=False):
     entries={}
+    paths={}
     scanned=0
     for namespace, path in _source_files(root):
         scanned+=1
@@ -132,13 +137,17 @@ def _index(root):
         if key in entries or not ID_RE.fullmatch(key):
             continue
         entries[key]=item
+        if with_paths:
+            # Private index only: never expose CasaOS paths through the API.
+            st=path.lstat()
+            paths[key]=(path,st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)
         if len(entries)>MAX_APPS:
             raise ValueError("excessive indexed apps")
     rows=sorted(entries.values(),key=lambda e:(e["title"].casefold(),e["store"],e["id"]))
     counts={}
     for e in rows:
         counts[e["store"]]=counts.get(e["store"],0)+1
-    return {"source":"existing_casaos_appstore_cache_readonly",
+    public={"source":"existing_casaos_appstore_cache_readonly",
             "catalog_format":"legacy_compose_x-casaos",
             "definitions_examined":scanned,
             "app_count":len(rows),"store_counts":counts,
@@ -148,15 +157,47 @@ def _index(root):
             "nextcloud_user_data_inspected":False,
             "app_install_enabled":False,
             "migration_allowed":False}
+    return (public,paths) if with_paths else public
 
 def catalog(root=STORE_ROOT):
     if root!=STORE_ROOT:
         return _index(root)
     with _guard:
         if _state["data"] is None or time.monotonic()>=_state["until"]:
-            _state["data"]=_index(root)
+            result,path_index=_index(root,with_paths=True)
+            _state["data"]=result
+            _state["paths"]=path_index
             _state["until"]=time.monotonic()+TTL_SECONDS
         return _state["data"]
+
+def indexed_definition(app_id):
+    """Resolve exactly one cached CasaOS catalogue metadata path in O(1).
+
+    The metadata cache is shared with the public catalogue but internal path
+    references are never returned via HTTP. Any file change fails closed and
+    invalidates the cache; we do not follow symlinks or application data.
+    """
+    if not isinstance(app_id,str) or not ID_RE.fullmatch(app_id):
+        raise ValueError("invalid store app identifier")
+    public=catalog()
+    known=next((entry for entry in public["apps"] if entry["id"]==app_id),None)
+    if known is None:
+        raise ValueError("unknown store app")
+    with _guard:
+        candidate=_state["paths"].get(app_id)
+    if candidate is None:
+        raise ValueError("catalogue path not indexed")
+    path,dev,ino,size,mtime,ctime=candidate
+    if not _safe_path(path,STORE_ROOT):
+        raise ValueError("unsafe store metadata path")
+    st=path.lstat()
+    if (not stat.S_ISREG(st.st_mode) or
+        (st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)!=
+        (dev,ino,size,mtime,ctime)):
+        with _guard:
+            _state["until"]=0
+        raise ValueError("store metadata changed; retry")
+    return known,path
 
 def compatibility(app_id):
     if not isinstance(app_id,str) or not ID_RE.fullmatch(app_id):

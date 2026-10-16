@@ -5,6 +5,7 @@ Builds a stage-only plan with immutable image IDs from Docker's local cache.
 """
 from __future__ import annotations
 import re
+import shutil
 import subprocess
 from stage_store_general import _find_catalog_definition, _mount_targets, AppError
 
@@ -29,6 +30,49 @@ def resolve_image(source, run=None):
         return None
     candidate=p.stdout.strip()
     return candidate if DIGEST.fullmatch(candidate) else None
+
+def prepare_images(app_id):
+    """Explicit operator preparation of exact catalogue images into Docker cache.
+
+    No Compose execution or original volumes; future installs use sha256 IDs.
+    Disk/cache mutations here never start or replace production containers.
+    """
+    _,doc=_find_catalog_definition(app_id)
+    plan=analyze(doc)
+    missing=sorted({part["image"] for part in plan["services"]
+                    if part["immutable_image"] is None})
+    if not missing:
+        return {"operation":"already_cached","app_id":app_id,
+                "prepared_images":0,"production_mutation_allowed":False}
+    try:
+        if shutil.disk_usage("/var/lib/docker").free < 8*1024**3:
+            raise AppError("insufficient_safe_docker_disk_headroom",409)
+    except OSError:
+        raise AppError("docker_cache_disk_unavailable",503)
+    def run(*args,timeout=180):
+        try:
+            proc=subprocess.run(("docker",*args),capture_output=True,
+                                text=True,check=False,timeout=timeout)
+        except (OSError,subprocess.TimeoutExpired):
+            raise AppError("store_image_preparation_unavailable",503)
+        if proc.returncode:
+            raise AppError("store_image_preparation_failed",503)
+        return proc.stdout.strip()
+    for source in missing:
+        # Pull only an image named by the existing CasaOS metadata,
+        # never a repository or arbitrary URL supplied by an API client.
+        run("pull",source,timeout=240)
+        size=run("image","inspect","--format","{{.Size}}",source,timeout=15)
+        try: n=int(size)
+        except ValueError:
+            raise AppError("invalid_prepared_image_size",409)
+        if not 0<n<=1_000_000_000:
+            raise AppError("prepared_image_exceeds_staging_size_limit",409)
+        if not resolve_image(source):
+            raise AppError("prepared_image_identity_unavailable",409)
+    return {"operation":"prepared","app_id":app_id,
+            "prepared_images":len(missing),
+            "production_mutation_allowed":False}
 
 def dependencies(service):
     source=service.get("depends_on") or []

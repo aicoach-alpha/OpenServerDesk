@@ -20,7 +20,7 @@ from urllib.parse import unquote
 import yaml
 
 from stage_apps import STAGE, AppError, guarded, registry as manager_registry
-from casaos_appstore import STORE_ROOT, _source_files, _parse, catalog
+from casaos_appstore import STORE_ROOT, indexed_definition, SAFE_LOADER
 
 ROOT=STAGE/"store-general"
 DATABASE=ROOT/"installations.json"
@@ -106,24 +106,17 @@ def _save(entries):
 def _find_catalog_definition(app_id):
     if not isinstance(app_id,str) or len(app_id)>115 or not re.fullmatch(r"[A-Za-z0-9_.:-]+",app_id):
         raise AppError("invalid_store_app_id",400)
-    known=next((x for x in catalog()["apps"] if x["id"]==app_id),None)
-    if known is None:
-        raise AppError("unknown_store_app_id",404)
-    found=[]
-    # Read ONLY existing CasaOS store metadata. No production app volumes.
-    for namespace,path in _source_files(STORE_ROOT):
-        if namespace!=known["store"]:
-            continue
-        item=_parse(namespace,path)
-        if item and item["id"]==app_id:
-            found.append(path)
-    if len(found)!=1:
-        raise AppError("store_app_definition_ambiguous",409)
-    path=found[0]
+    try:
+        known,path=indexed_definition(app_id)
+    except (ValueError,OSError) as err:
+        if str(err)=="unknown store app":
+            raise AppError("unknown_store_app_id",404) from err
+        raise AppError("store_metadata_changed_or_unavailable",409) from err
     if path.lstat().st_size>MAX_BYTES:
         raise AppError("store_definition_exceeds_limits",409)
     try:
-        doc=yaml.safe_load(path.read_text())
+        with path.open("r",encoding="utf-8") as handle:
+            doc=yaml.load(handle,Loader=SAFE_LOADER)
     except (OSError,UnicodeError,yaml.YAMLError):
         raise AppError("invalid_casaos_compose_definition",409)
     return known,doc

@@ -1031,7 +1031,9 @@ async function storeCoverageRefresh() {
 
 async function storeCompilerPreview(id) {
   compiledSelectedId=null;
+  compiledPrepareId=null;
   $("compiled-install").disabled=true;
+  $("compiled-prepare").disabled=true;
   if (!stageToken)return;
   $("appstore-compile-preview").textContent="Checking multi-service staging compatibility…";
   try {
@@ -1041,7 +1043,9 @@ async function storeCompilerPreview(id) {
     const data=await response.json();
     if (!response.ok)throw Error(data.error||"Staging compiler unavailable");
     compiledSelectedId=data.all_images_cached===true ? id : null;
+    compiledPrepareId=data.all_images_cached===false && data.sandbox_plan_supported===true ? id : null;
     $("compiled-install").disabled=!stageCanWrite||!compiledSelectedId;
+    $("compiled-prepare").disabled=!stageCanWrite||!compiledPrepareId;
     if (data.migration_allowed!==false
         || data.nextcloud_user_data_inspected!==false
         || data.production_mutation_allowed!==false)
@@ -1063,6 +1067,7 @@ async function storeCompilerPreview(id) {
 // Multi-service App Store project lifecycle. Authorization lives on the API;
 // control state here only improves the operator experience.
 let compiledSelectedId=null;
+let compiledPrepareId=null;
 async function compiledApi(method,payload){
   if(!stageToken)throw Error("Authenticate to use the App Store");
   const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
@@ -1126,3 +1131,20 @@ $("compiled-install").addEventListener("click",async()=>{
   finally{$("compiled-install").disabled=!stageCanWrite||!compiledSelectedId;}
 });
 $("compiled-refresh").addEventListener("click",compiledRefresh);
+
+
+$("compiled-prepare").addEventListener("click",async()=>{
+  const app=compiledPrepareId;
+  if(!app||!stageCanWrite)return;
+  if(!confirm("Prepare the catalogue images for "+app+" in the Docker cache? "+
+              "This downloads images, but does not install or run them."))return;
+  $("compiled-prepare").disabled=true;
+  $("compiled-status").textContent="Preparing immutable image cache for "+app+"…";
+  try{
+    const result=await compiledApi("POST",{action:"prepare",id:app});
+    $("compiled-status").textContent="Prepared "+result.prepared_images+" image(s). "+
+                                  "Select the app to confirm readiness.";
+    await storeCompilerPreview(app);
+  }catch(err){$("compiled-status").textContent="Image preparation failed: "+err.message;}
+  finally{$("compiled-prepare").disabled=!stageCanWrite||!compiledPrepareId;}
+});

@@ -14,7 +14,7 @@ import socket
 import subprocess
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
-from stage_store_compiler import compile_stage, STAGE
+from stage_store_compiler import compile_stage, prepare_images, STAGE
 
 ROOT=Path(STAGE)
 STATE=ROOT/"registry.json"
@@ -365,10 +365,14 @@ def listing():
                 "migration_allowed":False,"production_mutation_allowed":False}
 
 def operation(action,app_id=None,project=None):
-    if action not in ("install","start","stop","restart","uninstall","update","rollback","recover"):
+    if action not in ("prepare","install","start","stop","restart","uninstall","update","rollback","recover"):
         raise AppError("invalid_compiled_stage_action",400)
     with guarded():
         values=_projects()
+        if action=="prepare":
+            if project is not None or not isinstance(app_id,str):
+                raise AppError("invalid_compiled_image_prepare_request",400)
+            return prepare_images(app_id)
         if action=="install":
             if project is not None or len(values)>=MAX_PROJECTS:
                 raise AppError("compiled_stage_capacity",409)

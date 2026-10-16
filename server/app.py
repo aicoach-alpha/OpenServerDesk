@@ -475,8 +475,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise AppError("invalid_operation_request", 400)
             if self.path.endswith("/store-compiled"):
                 op=payload.get("action")
-                if set(payload)=={"action","id"} and op=="install":
-                    return self.respond(200,compiled_store_operation("install",app_id=payload["id"]))
+                if set(payload)=={"action","id"} and op in ("prepare","install"):
+                    return self.respond(200,compiled_store_operation(op,app_id=payload["id"]))
                 if set(payload)=={"action","project"} and op in (
                     "start","stop","restart","uninstall","update","rollback","recover"):
                     return self.respond(200,compiled_store_operation(op,project=payload["project"]))
