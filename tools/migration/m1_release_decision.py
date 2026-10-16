@@ -171,7 +171,7 @@ def decide():
                          "production_release_approved": False}
     try:
         import importlib.util
-        signing = ROOT / "tools/release/stage_artifact_signing_0616.py"
+        signing = ROOT / "tools/release/stage_artifact_signing_0620.py"
         spec = importlib.util.spec_from_file_location("osd_stage_0616_signature", signing)
         if spec is None or spec.loader is None:
             raise ValueError("staging signature verifier unavailable")
