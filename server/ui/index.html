@@ -167,6 +167,30 @@
     <div id="stage-checkpoints" class="stage-files-list"></div>
   </div>
 </section>
+<section class="panel" aria-label="Isolated multi-service topology management">
+ <div class="toolbar">
+  <div><h2>Multi-service Compose — isolated staging</h2>
+  <p>Two or three dependent services using offline BusyBox containers only.
+  No production ports, networks, Nextcloud uploads or external mounts.</p></div>
+  <span class="status">Staging only</span>
+ </div>
+ <div class="progress-content">
+  <div class="stage-control">
+   <label for="topology-template">Service structure</label>
+   <select id="topology-template">
+    <option value="two">Frontend + database (2 services)</option>
+    <option value="three">Frontend + worker + database (3 services)</option>
+   </select>
+   <button type="button" id="topology-install" disabled>Install isolated topology</button>
+   <button type="button" id="topology-refresh" disabled>Refresh</button>
+  </div>
+  <p id="topology-status" role="status">Authenticate as a staging operator above.</p>
+  <div class="table-scroll"><table>
+   <thead><tr><th>Project</th><th>Services</th><th>Running</th><th>Actions</th></tr></thead>
+   <tbody id="topology-list"></tbody>
+  </table></div>
+ </div>
+</section>
 <section class="stats" aria-label="Docker status">
 <div class="stat"><span>Containers</span><strong id="total">—</strong></div>
 <div class="stat"><span>Running</span><strong id="running">—</strong></div>

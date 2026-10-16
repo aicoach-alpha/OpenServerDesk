@@ -183,6 +183,9 @@ async function stageRefresh() {
     stageFilesRefresh();
     $("stage-compose-install").disabled=!stageCanWrite;
     $("stage-compose-refresh").disabled=false;
+    $("topology-install").disabled=!stageCanWrite;
+    $("topology-refresh").disabled=false;
+    topologyRefresh();
     stageComposeRefresh();
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
@@ -209,6 +212,8 @@ async function stageRefresh() {
     stageCanWrite=false;
     $("stage-compose-install").disabled=true;
     $("stage-compose-refresh").disabled=true;
+    $("topology-install").disabled=true;
+    $("topology-refresh").disabled=true;
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=true;
@@ -631,3 +636,70 @@ async function refreshHostStatus() {
 }
 $("host-refresh").addEventListener("click",refreshHostStatus);
 refreshHostStatus();
+
+
+async function topologyApi(method,payload) {
+  if (!stageToken) throw Error("Staging authorization required");
+  const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
+  if (payload) {
+    opts.headers["Content-Type"]="application/json";
+    opts.body=JSON.stringify(payload);
+  }
+  const response=await fetch("/api/v1/stage/topologies",opts);
+  const content=await response.json();
+  if (!response.ok) throw Error(content.error||"Isolated topology request failed");
+  return content;
+}
+
+async function topologyRefresh() {
+  try {
+    const data=await topologyApi("GET");
+    const body=$("topology-list");
+    body.replaceChildren();
+    for (const item of data.topologies) {
+      const row=document.createElement("tr");
+      cell(row,item.project);
+      cell(row,item.services.map(s=>s.name).join(", "));
+      cell(row,item.services.filter(s=>s.running).length+" / "+item.services.length);
+      const actions=document.createElement("td");
+      for (const action of (item.running ? ["stop","restart","uninstall"] :
+                              ["start","uninstall"])) {
+        actions.appendChild(stageButton(action,!stageCanWrite,async()=>{
+          if (action==="uninstall" && !confirm("Delete this isolated staging topology?"))return;
+          try {
+            $("topology-status").textContent="Running isolated "+action+"…";
+            await topologyApi("POST",{action,project:item.project});
+            await topologyRefresh();
+          } catch(err) {
+            $("topology-status").textContent=err.message;
+          }
+        }));
+      }
+      row.appendChild(actions);
+      body.appendChild(row);
+    }
+    $("topology-status").textContent=data.topologies.length+
+      " isolated multi-service projects; original CasaOS apps are not editable";
+  } catch(err) {
+    $("topology-status").textContent="Stage topologies: "+err.message;
+  }
+}
+$("topology-refresh").addEventListener("click",topologyRefresh);
+$("topology-install").addEventListener("click",async()=>{
+  const three=$("topology-template").value==="three";
+  const services=[
+    {name:"frontend",depends_on:["db"]},
+    {name:"db",depends_on:[]}
+  ];
+  if (three)services.push({name:"worker",depends_on:["db"]});
+  try {
+    $("topology-install").disabled=true;
+    $("topology-status").textContent="Installing offline multi-service topology…";
+    await topologyApi("POST",{action:"install",services});
+    await topologyRefresh();
+  } catch(err) {
+    $("topology-status").textContent=err.message;
+  } finally {
+    $("topology-install").disabled=!stageCanWrite;
+  }
+});
