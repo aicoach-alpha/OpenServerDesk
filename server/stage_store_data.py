@@ -4,8 +4,9 @@ Checkpoint/restore require ALL owned containers stopped. The original
 production Compose paths and Nextcloud HDD are NEVER traversed or mounted.
 """
 from __future__ import annotations
-import hashlib, json, os, re, secrets, shutil, stat
+import hashlib, json, os, re, secrets, shutil, sqlite3, stat
 from pathlib import Path
+from urllib.parse import quote
 from stage_apps import AppError
 from stage_store_compiler import STAGE
 
@@ -85,6 +86,50 @@ def _digest_tree(root):
             raise AppError("unsafe_stage_data_entry",403)
     return {"sha256":h.hexdigest(),"files":count}
 
+SQLITE_MAGIC=b"SQLite format 3\0"
+SQLITE_SUFFIXES=(".sqlite",".sqlite3",".db")
+
+def _sqlite_check(root):
+    """Quick-check cold, staging-owned SQLite files; never inspect host paths.
+
+    This is SQLite physical-consistency evidence only, not a guarantee of
+    application-level transactions or PostgreSQL/MySQL recovery.
+    """
+    root=Path(root)
+    _scan(root,[0,0])
+    checked=0
+    for file in sorted(root.rglob("*")):
+        if not file.is_file():
+            continue
+        with file.open("rb") as stream:
+            header=stream.read(16)
+        named=file.name.lower().endswith(SQLITE_SUFFIXES)
+        if not named and header!=SQLITE_MAGIC:
+            continue
+        if header!=SQLITE_MAGIC:
+            raise AppError("stage_sqlite_invalid_header",409)
+        # A cold snapshot containing outstanding WAL or journal transactions
+        # cannot be independently verified using a single immutable DB file.
+        for suffix in ("-wal","-journal"):
+            sidecar=Path(str(file)+suffix)
+            if sidecar.exists() or sidecar.is_symlink():
+                if sidecar.is_symlink() or not sidecar.is_file() or sidecar.stat().st_size:
+                    raise AppError("stage_sqlite_uncheckpointed_journal",409)
+        uri="file:"+quote(str(file),safe="/")+"?mode=ro&immutable=1"
+        try:
+            con=sqlite3.connect(uri,uri=True,timeout=2)
+            try:
+                con.execute("PRAGMA query_only=ON")
+                result=con.execute("PRAGMA quick_check(1)").fetchall()
+            finally:
+                con.close()
+        except (sqlite3.DatabaseError,OSError,ValueError) as err:
+            raise AppError("stage_sqlite_integrity_failed",409) from err
+        if result!=[("ok",)]:
+            raise AppError("stage_sqlite_integrity_failed",409)
+        checked+=1
+    return checked
+
 def _safe_copy(src,dst):
     _scan(src,[0,0])
     def copy_file(a,b):
@@ -139,9 +184,11 @@ def _save(project,manifest):
             target.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
             _safe_copy(source,target)
         digests={rel:_digest_tree(tmp/"volumes"/rel) for rel,_ in sources}
-        _write(tmp/"manifest.json",{"version":2,"id":name,
+        sqlite_count=sum(_sqlite_check(tmp/"volumes"/rel) for rel,_ in sources)
+        _write(tmp/"manifest.json",{"version":3,"id":name,
             "volumes":[rel for rel,_ in sources],
             "integrity":digests,
+            "sqlite_files_verified":sqlite_count,
             "count":limit[0],"bytes":limit[1]})
         os.replace(tmp,root/name)
         _sync(root)
@@ -154,7 +201,11 @@ def checkpoint(project,manifest,services):
     _stopped(services)
     if (_dir(project)/"data-restore-pending.json").exists():
         raise AppError("stage_data_recovery_required",409)
-    return {"operation":"checkpoint","checkpoint":_save(project,manifest),
+    name=_save(project,manifest)
+    evidence=json.loads((_checkpoints(project)/name/"manifest.json").read_text())
+    return {"operation":"checkpoint","checkpoint":name,
+            "sqlite_quick_check_passed":True,
+            "sqlite_files_verified":evidence["sqlite_files_verified"],
             "production_mutation_allowed":False,"database_integrity_verified":False}
 
 def _validate_snapshot(project,manifest,name):
@@ -170,7 +221,7 @@ def _validate_snapshot(project,manifest,name):
     except (OSError,ValueError):
         raise AppError("invalid_stage_checkpoint_manifest",403)
     paths=_volumes(project,manifest)
-    if (doc.get("version") not in (1,2) or doc.get("id")!=name or
+    if (doc.get("version") not in (1,2,3) or doc.get("id")!=name or
             doc.get("volumes")!=[rel for rel,_ in paths]):
         raise AppError("stage_checkpoint_volume_mismatch",403)
     result=[]
@@ -179,13 +230,17 @@ def _validate_snapshot(project,manifest,name):
         if source.is_symlink() or not source.is_dir():
             raise AppError("stage_checkpoint_data_missing",403)
         _scan(source,[0,0])
-        if doc["version"]==2:
+        if doc["version"]>=2:
             stored=doc.get("integrity")
             if (not isinstance(stored,dict)
                     or set(stored)!={rel for rel,_ in paths}
                     or stored.get(rel)!=_digest_tree(source)):
                 raise AppError("stage_checkpoint_integrity_mismatch",409)
         result.append((source,dst))
+    if doc["version"]>=3:
+        observed=sum(_sqlite_check(src) for src,_ in result)
+        if type(doc.get("sqlite_files_verified")) is not int or observed!=doc["sqlite_files_verified"]:
+            raise AppError("stage_sqlite_checkpoint_mismatch",409)
     return result
 
 def _apply(project,manifest,name):
@@ -213,6 +268,13 @@ def _apply(project,manifest,name):
                 os.chown(Path(current)/name,1000,1000)
         os.chown(dst,1000,1000)
         _sync(dst)
+    # A failed post-restore check leaves the durable undo journal in place.
+    checked=0
+    for src,dst in sources:
+        if _digest_tree(src)!=_digest_tree(dst):
+            raise AppError("stage_restore_content_mismatch",503)
+        checked+=_sqlite_check(dst)
+    return checked
 
 def restore(project,manifest,services,name):
     _stopped(services)
@@ -222,11 +284,12 @@ def restore(project,manifest,services,name):
     _validate_snapshot(project,manifest,name)
     undo=_save(project,manifest)
     _write(pending,{"version":1,"operation":"restore","undo":undo,"target":name})
-    try:_apply(project,manifest,name)
+    try:checked=_apply(project,manifest,name)
     except Exception as e:
         raise AppError("stage_data_restore_requires_recovery",503) from e
     pending.unlink();_sync(_dir(project))
     return {"operation":"restored","checkpoint":name,"undo":undo,
+            "sqlite_quick_check_passed":True,"sqlite_files_verified":checked,
             "production_mutation_allowed":False,"database_integrity_verified":False}
 
 def recover(project,manifest,services):
@@ -239,7 +302,8 @@ def recover(project,manifest,services):
         raise AppError("invalid_stage_data_journal",503)
     if not isinstance(doc,dict) or doc.get("version")!=1 or doc.get("operation")!="restore":
         raise AppError("invalid_stage_data_journal",503)
-    _apply(project,manifest,doc.get("undo"))
+    checked=_apply(project,manifest,doc.get("undo"))
     pending.unlink();_sync(_dir(project))
-    return {"operation":"recovered_pre_restore_data","production_mutation_allowed":False,
-            "database_integrity_verified":False}
+    return {"operation":"recovered_pre_restore_data",
+            "sqlite_quick_check_passed":True,"sqlite_files_verified":checked,
+            "production_mutation_allowed":False,"database_integrity_verified":False}
