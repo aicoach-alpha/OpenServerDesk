@@ -3,8 +3,8 @@ from unittest.mock import patch
 import migration_preflight as m
 
 class MigrationContractTest(unittest.TestCase):
-    def test_paths_include_external_hdd(self):
-        self.assertIn("/mnt/data",m.PATHS)
+    def test_user_hdd_excluded_from_platform_migration(self):
+        self.assertNotIn("/mnt/data",m.PATHS)
     def test_casaos_services_inventory(self):
         self.assertEqual(len(m.SERVICES),6)
     def test_no_mutating_subprocess_invocations(self):
