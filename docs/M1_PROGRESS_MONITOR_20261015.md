@@ -1,3 +1,12 @@
+> UPDATED 16 October 2026: The user requested the automated M1 jobs OFF.
+> Both the ChatGPT automation and NAS 15-minute cron job are disabled.
+> This file records their historical implementation but they are NOT
+> currently running. Status checks are one-shot/on-demand only.
+> Real platform-only SSD backup/restore was verified and weighted gate
+> scope updated: 8 points accepted, 12 points reserved for cross-service
+> atomic consistency. The current verified score is 40/100 and MUST NOT
+> be reported as time remaining.
+
 # OPERATOR UPDATE (2026-10-15 17:58 WIB): BOTH M1 AUTONOMOUS TASKS STOPPED
 
 At the user's explicit request the ChatGPT hourly M1 task is disabled and the

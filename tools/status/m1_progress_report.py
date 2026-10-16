@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audited, weighted M1 release acceptance status, every 15 minutes.
+"""Audited, one-shot weighted M1 release acceptance status.
 
 The score is completed scope weight, NOT elapsed time or a completion ETA.
 Each weight only counts on explicitly verified evidence, with NO speculative
@@ -17,7 +17,7 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path("/opt/openserverdesk-dev/runtime-stage/progress")
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.5_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.15_amd64.deb")
 URL = "http://127.0.0.1:18690"
 
 # Explicitly frozen acceptance criteria/weights. Add new independently
@@ -28,8 +28,9 @@ GATES = (
     ("docker_ui", "Live read-only Docker/Compose dashboard", 8),
     ("data_inventory", "Real Docker bind/data coverage inventory", 4),
     ("fixture_recovery", "Two-project staged SQLite/Compose/bind restore", 8),
+    ("config_recovery", "Real SSD backup and independent restore of platform configuration only", 8),
     ("full_runtime", "Full authenticated AppManagement/LocalStorage workflows", 18),
-    ("real_data", "Consistent recovery of ALL real workloads and mounts", 20),
+    ("config_atomicity", "Proven consistent cross-service configuration migration", 12),
     ("cutover_rollback", "Production-equivalent safe activation + full rollback", 20),
     ("security_release", "Signed release + independent security acceptance", 10),
 )
@@ -69,7 +70,7 @@ def collect():
     message = command("git", "-C", str(ROOT), "show", "-s", "--format=%s", "HEAD")
     status = command("git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no")
     ver = command("dpkg-deb", "--field", str(PKG), "Version")
-    pkg_files = command("dpkg-deb", "--contents", str(PKG), timeout=16) if ver == "0.6.5" else ""
+    pkg_files = command("dpkg-deb", "--contents", str(PKG), timeout=16) if ver == "0.6.15" else ""
     required = (
         "usr/lib/openserverdesk/bin/casaos",
         "usr/lib/openserverdesk/bin/CasaOS-Gateway",
@@ -107,17 +108,39 @@ def collect():
         )) and file_has(
             ROOT / "docs/M1_MULTI_APP_RECOVERY_20261015.md",
             "TWO_REAL_DOCKER_APP_PROJECTS_QUIESCE_BACKUP_RESTORE_AND_BOOT_PASS"),
-        # Fail-closed: none of the below have authenticated acceptance proof.
+        # Full release acceptance is distinct from real but NON-atomic
+        # scoped configuration recovery performed on the NAS SSD.
+        "config_recovery": False,
         "full_runtime": False,
-        "real_data": False,
+        "config_atomicity": False,
         "cutover_rollback": False,
         "security_release": False,
     }
+    # Root-only verifier wrote a redacted acceptance report after checking
+    # the actual backup and recovery on an SSD separate from source disk.
+    # The user-disabled cron must NOT be re-enabled to update these metrics.
+    proof_file = Path(
+        "/opt/openserverdesk-dev/runtime-stage/"
+        "M1_RELEASE_DECISION_CONFIG_SSD_20261016.json")
+    try:
+        attestation = json.loads(proof_file.read_text())
+        recovery = attestation["configuration_recovery_acceptance"]
+        checks["config_recovery"] = (
+            payload and ver == "0.6.15"
+            and attestation["migration_allowed"] is False
+            and recovery["platform_backup_verified"] is True
+            and recovery["staging_restore_verified"] is True
+            and recovery["external_nextcloud_user_uploads_copied"] is False
+            and recovery["platform_cluster_snapshot_atomic"] is False
+            and recovery["verified_config_files"] >= 1
+            and recovery["verified_sqlite_dbs"] >= 3)
+    except (OSError, ValueError, TypeError, KeyError):
+        checks["config_recovery"] = False
     milestones = [
         {"id": id_, "label": label, "weight_percent": weight, "verified": bool(checks[id_]),
          "evidence_class": (
              "live_readonly" if id_ in ("docker_ui", "data_inventory")
-             else "artifact_and_recorded_test" if id_ in ("payload", "six_boot", "fixture_recovery")
+             else "artifact_and_recorded_test" if id_ in ("payload", "six_boot", "fixture_recovery", "config_recovery")
              else "unverified"
          )}
         for id_, label, weight in GATES

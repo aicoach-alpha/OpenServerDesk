@@ -111,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
                         or report["metric"] != "weighted_scope_accepted_not_time_estimate"
                         or type(report["progress_percent"]) is not int
                         or not 0 <= report["progress_percent"] <= 100
-                        or len(report["milestones"]) != 9
+                        or len(report["milestones"]) != 10
                         or report["migration_allowed"] is not False
                         or not all(isinstance(x, dict) and
                                    set(x) == {"id","label","weight_percent",
@@ -130,8 +130,9 @@ class Handler(BaseHTTPRequestHandler):
                 if any(len(line) > 4096 for line in lines):
                     raise ValueError("invalid report line")
                 return self.respond(200, {
-                    "cadence_minutes": 15,
-                    "scope": "host_generated_snapshots_not_chat_notifications",
+                     "cadence_minutes": None,
+                    "automated_monitoring_enabled": False,
+                    "scope": "manual_on_demand_server_snapshots",
                     "entries": [json.loads(line) for line in lines],
                 })
             except (OSError, ValueError, TypeError):
