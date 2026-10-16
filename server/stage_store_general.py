@@ -30,6 +30,8 @@ MAX_BYTES=262144
 ID_PATTERN=re.compile(r"osd-store-[a-f0-9]{12}\Z")
 CID_PATTERN=re.compile(r"[a-f0-9]{64}\Z")
 IMAGE_PATTERN=re.compile(r"[a-zA-Z0-9][a-zA-Z0-9./_-]{1,180}:[a-zA-Z0-9_.-]{1,90}\Z")
+CATALOG_IMAGE_PATTERN=re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,180}(?::[A-Za-z0-9_.-]{1,90})?\Z")
+IMAGE_ID_PATTERN=re.compile(r"sha256:[a-f0-9]{64}\Z")
 SAFE_TARGET=re.compile(r"/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\Z")
 BANNED_TARGETS=("/proc","/sys","/dev","/run","/var/run","/etc","/root","/home","/mnt","/media")
 
@@ -167,21 +169,27 @@ def preflight(app_id):
     if any(key in service for key in forbidden):
         return {"id":app_id,"eligible":False,"reason":"advanced_runtime_options_not_sandbox_safe"}
     image=service.get("image")
-    if (not isinstance(image,str) or not IMAGE_PATTERN.fullmatch(image)
-        or image.rsplit(":",1)[-1].lower()=="latest"):
-        return {"id":app_id,"eligible":False,"reason":"image_version_must_be_explicitly_pinned"}
+    if not isinstance(image,str) or not CATALOG_IMAGE_PATTERN.fullmatch(image):
+        return {"id":app_id,"eligible":False,"reason":"unsupported_image_reference"}
     try:
         mounts=_mount_targets(service)
     except AppError:
         return {"id":app_id,"eligible":False,"reason":"unsafe_app_volume_declaration"}
     try:
-        _command("image","inspect",image,timeout=12)
+        # Resolve a mutable tag to the locally present IMMUTABLE image ID.
+        # No network image fetch occurs during preflight or installation.
+        cached_id=_command("image","inspect","--format","{{.Id}}",image,timeout=12)
+        if not IMAGE_ID_PATTERN.fullmatch(cached_id):
+            raise AppError("unrecognized_cached_image_identity",409)
         cached=True
     except AppError:
         cached=False
+        cached_id=None
     return {
         "id":app_id,"title":known["title"],"image":image,
-        "eligible":True,"image_cached":cached,"mount_count":len(mounts),
+        "eligible":True,"image_cached":cached,"image_id":cached_id,
+        "immutable_image_id_verified":bool(cached_id),
+        "mount_count":len(mounts),
         "host_ports_exposed":False,"network_enabled":False,
         "environment_from_source_applied":False,
         "source_host_features_stripped":sorted(x for x in
@@ -267,6 +275,11 @@ def action(op, app_id=None, project=None):
             plan=preflight(app_id)
             if not plan.get("eligible") or not plan.get("image_cached"):
                 raise AppError(plan.get("reason","stage_app_not_eligible"),409)
+            # All container launches must use the exact cached image ID;
+            # never pass a mutable latest/unversioned tag to Docker run.
+            image_id=plan["image_id"]
+            if not isinstance(image_id,str) or not IMAGE_ID_PATTERN.fullmatch(image_id):
+                raise AppError("staging_image_identity_not_verified",409)
             _,doc=_find_catalog_definition(app_id)
             service=next(iter(doc["services"].values()))
             targets=_mount_targets(service)
@@ -293,11 +306,11 @@ def action(op, app_id=None, project=None):
                 args.extend(["--label",f"{label}={value}"])
             # Even when the source has privileged flags, env or ports,
             # none of those dangerous fields enter the Docker command.
-            ident=_command(*args,plan["image"],timeout=65)
+            ident=_command(*args,image_id,timeout=65)
             if not CID_PATTERN.fullmatch(ident):
                 raise AppError("unrecognized_new_stage_container",503)
             record={"container":ident,"owner":owner,"app_id":app_id,
-                    "image":plan["image"],"mounts":targets}
+                    "image":image_id,"mounts":targets}
             try:
                 _container(project,record)
                 time.sleep(2)
