@@ -187,6 +187,9 @@ async function stageRefresh() {
     $("topology-refresh").disabled=false;
     topologyRefresh();
     $("appstore-refresh").disabled=false;
+    $("appstore-pilot-install").disabled=!stageCanWrite;
+    $("appstore-pilot-refresh").disabled=false;
+    appstorePilotRefresh();
     if (!casaosStoreData) appstoreRefresh();
     stageComposeRefresh();
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
@@ -217,6 +220,8 @@ async function stageRefresh() {
     $("topology-install").disabled=true;
     $("topology-refresh").disabled=true;
     $("appstore-refresh").disabled=true;
+    $("appstore-pilot-install").disabled=true;
+    $("appstore-pilot-refresh").disabled=true;
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=true;
@@ -812,4 +817,71 @@ $("appstore-source").addEventListener("change",()=>{
 });
 $("appstore-more").addEventListener("click",()=>{
   appstoreVisibleCount+=30;appstoreRender();
+});
+
+
+async function appstorePilotRequest(method,payload) {
+  if (!stageToken) throw Error("Staging authorization required");
+  const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
+  if (payload) {
+    opts.headers["Content-Type"]="application/json";
+    opts.body=JSON.stringify(payload);
+  }
+  const response=await fetch("/api/v1/stage/casaos-store-pilot",opts);
+  const output=await response.json();
+  if (!response.ok)throw Error(output.error||"Stage App Store pilot unavailable");
+  return output;
+}
+async function appstorePilotRefresh() {
+  try {
+    const result=await appstorePilotRequest("GET");
+    if (result.scope!=="approved_isolated_casaos_store_pilot"
+        || result.production_mutation_allowed!==false)
+      throw Error("Unexpected App Store installation scope");
+    const holder=$("appstore-pilot-apps");
+    holder.replaceChildren();
+    $("appstore-pilot-install").disabled=!stageCanWrite||result.apps.length>0;
+    for (const app of result.apps) {
+      const row=document.createElement("div");
+      const label=document.createElement("span");
+      label.textContent=app.app_id+" · "+app.state+" · ";
+      row.appendChild(label);
+      const operations=app.running?["stop","restart","uninstall"]:["start","uninstall"];
+      for (const action of operations) {
+        const button=document.createElement("button");
+        button.type="button";
+        button.disabled=!stageCanWrite;
+        button.textContent=action;
+        button.addEventListener("click",async()=>{
+          if (action==="uninstall" && !confirm("Uninstall the isolated MySpeed staging app?"))return;
+          try {
+            $("appstore-pilot-status").textContent="Running "+action+"…";
+            await appstorePilotRequest("POST",{action,project:app.project});
+            await appstorePilotRefresh();
+          } catch(err) {
+            $("appstore-pilot-status").textContent=err.message;
+          }
+        });
+        row.appendChild(button);
+      }
+      holder.appendChild(row);
+    }
+    $("appstore-pilot-status").textContent=result.apps.length+
+      " real CasaOS Store app pilot(s) in isolated staging; no production app changes";
+  } catch(err) {
+    $("appstore-pilot-status").textContent=err.message;
+  }
+}
+$("appstore-pilot-refresh").addEventListener("click",appstorePilotRefresh);
+$("appstore-pilot-install").addEventListener("click",async()=>{
+  if (!confirm("Install a separate MySpeed 1.0.8 container ONLY in isolated staging?"))return;
+  $("appstore-pilot-install").disabled=true;
+  $("appstore-pilot-status").textContent="Installing exact original MySpeed App Store image…";
+  try {
+    await appstorePilotRequest("POST",{action:"install",id:"default:MySpeed"});
+    await appstorePilotRefresh();
+  } catch(err) {
+    $("appstore-pilot-status").textContent=err.message;
+    $("appstore-pilot-install").disabled=!stageCanWrite;
+  }
 });
