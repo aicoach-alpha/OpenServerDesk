@@ -19,6 +19,7 @@ from stage_topology import list_topologies as topology_list, action as topology_
 from stage_topology_health import inspect as stage_topology_health
 from casaos_appstore import catalog as casaos_store_catalog, compatibility as casaos_store_compatibility
 from stage_store_installer import list_installs as store_pilot_list, action as store_pilot_action
+from stage_store_general import preflight as store_general_preflight, listing as store_general_listing, action as store_general_action
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
 from host_status import status as host_status, HostStatusError
 from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
@@ -171,6 +172,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, {"error":"invalid_stage_file_query"})
             except AppError as err:
                 return self.respond(err.status, {"error":err.message})
+        if self.path == "/api/v1/stage/store-general" or self.path.startswith("/api/v1/stage/store-general?"):
+            try:
+                self._stage_auth()
+                parsed=urlsplit(self.path)
+                if not parsed.query:
+                    return self.respond(200,store_general_listing())
+                fields=parse_qs(parsed.query,strict_parsing=True,max_num_fields=2)
+                if set(fields)!={"id"} or len(fields["id"])!=1:
+                    raise AppError("invalid_general_store_query",400)
+                return self.respond(200,store_general_preflight(fields["id"][0]))
+            except (TypeError,ValueError):
+                return self.respond(400,{"error":"invalid_general_store_query"})
+            except AppError as err:
+                return self.respond(err.status,{"error":err.message})
         if self.path == "/api/v1/stage/casaos-store-pilot":
             try:
                 self._stage_auth()
@@ -414,7 +429,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files",
                              "/api/v1/stage/recovery", "/api/v1/stage/compose",
                              "/api/v1/stage/compose-backups", "/api/v1/stage/topologies",
-                             "/api/v1/stage/casaos-store-pilot"):
+                             "/api/v1/stage/casaos-store-pilot",
+                             "/api/v1/stage/store-general"):
             return self.respond(405, {"error":"read_only"})
         try:
             self._stage_auth()
@@ -427,6 +443,13 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(size))
             if not isinstance(payload, dict):
                 raise AppError("invalid_operation_request", 400)
+            if self.path.endswith("/store-general"):
+                if set(payload)=={"action","id"} and payload.get("action")=="install":
+                    return self.respond(200,store_general_action("install",app_id=payload["id"]))
+                if (set(payload)=={"action","project"} and
+                        payload.get("action") in ("start","stop","restart","uninstall")):
+                    return self.respond(200,store_general_action(payload["action"],project=payload["project"]))
+                raise AppError("invalid_general_store_operation",400)
             if self.path.endswith("/casaos-store-pilot"):
                 if set(payload)=={"action","id"} and payload.get("action")=="install":
                     return self.respond(200,store_pilot_action("install",app_id=payload["id"]))

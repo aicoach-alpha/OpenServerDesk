@@ -189,6 +189,8 @@ async function stageRefresh() {
     $("appstore-refresh").disabled=false;
     $("appstore-pilot-install").disabled=!stageCanWrite;
     $("appstore-pilot-refresh").disabled=false;
+    $("store-general-refresh").disabled=false;
+    storeGeneralRefresh();
     appstorePilotRefresh();
     if (!casaosStoreData) appstoreRefresh();
     stageComposeRefresh();
@@ -222,6 +224,8 @@ async function stageRefresh() {
     $("appstore-refresh").disabled=true;
     $("appstore-pilot-install").disabled=true;
     $("appstore-pilot-refresh").disabled=true;
+    $("store-general-refresh").disabled=true;
+    $("store-general-install").disabled=true;
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=true;
@@ -800,7 +804,8 @@ async function appstoreDetails(id) {
       .map(([key])=>key.replaceAll("_"," "));
     $("appstore-details").textContent=app.title+": "+app.service_count+
       " service(s). Review: "+(risks.join(", ")||"none indicated")+
-      ". Install from this store is still blocked until complete sandbox compatibility passes.";
+      ". Production installation remains blocked.";
+    await storeGeneralPreflight(id);
   } catch(err) {
     $("appstore-details").textContent=err.message;
   }
@@ -885,3 +890,88 @@ $("appstore-pilot-install").addEventListener("click",async()=>{
     $("appstore-pilot-install").disabled=!stageCanWrite;
   }
 });
+
+
+let generalInstallSelection=null;
+async function storeGeneralApi(method,payload,id) {
+  if (!stageToken)throw Error("Staging operator authentication required");
+  const suffix=id?"?id="+encodeURIComponent(id):"";
+  const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
+  if (payload){
+    opts.headers["Content-Type"]="application/json";
+    opts.body=JSON.stringify(payload);
+  }
+  const response=await fetch("/api/v1/stage/store-general"+suffix,opts);
+  const result=await response.json();
+  if (!response.ok)throw Error(result.error||"Staging app installation unavailable");
+  return result;
+}
+async function storeGeneralPreflight(id) {
+  generalInstallSelection=null;
+  $("store-general-install").disabled=true;
+  $("store-general-status").textContent="Evaluating safe staging install requirements…";
+  try{
+    const plan=await storeGeneralApi("GET",null,id);
+    const available=plan.eligible===true && plan.image_cached===true;
+    generalInstallSelection=available?id:null;
+    $("store-general-install").disabled=!stageCanWrite||!available;
+    $("store-general-status").textContent=available
+      ? "Ready: "+plan.title+" · "+plan.image+" · "+plan.mount_count+
+        " isolated volume(s); original host ports and network disabled"
+      : "Staging install not ready: "+(plan.reason||"unsupported application");
+  }catch(err){
+    $("store-general-status").textContent="Staging plan: "+err.message;
+  }
+}
+async function storeGeneralRefresh() {
+  try {
+    const result=await storeGeneralApi("GET");
+    if (result.scope!=="catalog_derived_isolated_singlestage"
+        || result.production_mutation_allowed!==false)
+      throw Error("Unexpected staging lifecycle scope");
+    const holder=$("store-general-list");
+    holder.replaceChildren();
+    for (const entry of result.apps) {
+      const row=document.createElement("div");
+      const label=document.createElement("span");
+      label.textContent=entry.app_id+" · "+(entry.running?"running":"stopped")+" · ";
+      row.append(label);
+      for (const op of (entry.running?["stop","restart","uninstall"]:["start","uninstall"])) {
+        const btn=document.createElement("button");
+        btn.type="button";btn.disabled=!stageCanWrite;btn.textContent=op;
+        btn.addEventListener("click",async()=>{
+          if (op==="uninstall" && !confirm("Delete this isolated staged container? Stage data will be retained."))return;
+          try{
+            $("store-general-status").textContent="Staging "+op+" in progress…";
+            await storeGeneralApi("POST",{action:op,project:entry.project});
+            await storeGeneralRefresh();
+          }catch(err){$("store-general-status").textContent=err.message;}
+        });
+        row.append(btn);
+      }
+      holder.append(row);
+    }
+    if (result.apps.length)
+      $("store-general-status").textContent=result.apps.length+
+        " staged App Store install(s), never production Docker projects";
+  }catch(err){
+    $("store-general-status").textContent="App Store staging status: "+err.message;
+  }
+}
+$("store-general-install").addEventListener("click",async()=>{
+  if (!generalInstallSelection||!stageCanWrite)return;
+  if (!confirm("Install "+generalInstallSelection+
+      " into a new isolated staging container with NO external network or published ports?"))return;
+  const appId=generalInstallSelection;
+  $("store-general-install").disabled=true;
+  $("store-general-status").textContent="Installing sandboxed native catalog image…";
+  try{
+    await storeGeneralApi("POST",{action:"install",id:appId});
+    await storeGeneralRefresh();
+  }catch(err){
+    $("store-general-status").textContent=err.message;
+  }finally{
+    $("store-general-install").disabled=!stageCanWrite||!generalInstallSelection;
+  }
+});
+$("store-general-refresh").addEventListener("click",storeGeneralRefresh);
