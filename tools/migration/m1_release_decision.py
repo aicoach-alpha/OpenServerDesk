@@ -143,9 +143,29 @@ def decide():
             "consistency during live backup are not yet proven. No actual "
             "production switchover is authorized."
         )
+    staging_signature = {"verified": False, "scope": "local_staging_only",
+                         "production_release_approved": False}
+    try:
+        import importlib.util
+        signing = ROOT / "tools/release/stage_artifact_signing_0616.py"
+        spec = importlib.util.spec_from_file_location("osd_stage_0616_signature", signing)
+        if spec is None or spec.loader is None:
+            raise ValueError("staging signature verifier unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        proof = module.verify()
+        if (proof["status"] == "STAGING_ED25519_MANIFEST_SIGNATURE_VERIFIED"
+                and proof["package_sha256"] == hashlib.sha256(PKG.read_bytes()).hexdigest()
+                and proof["production_release_approved"] is False):
+            staging_signature["verified"] = True
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError,
+            subprocess.TimeoutExpired, AttributeError):
+        pass
     blockers["signed_release_and_security_acceptance"] = (
-        "No validated signed production release or completed independent M1 "
-        "security/pentest acceptance is supplied."
+        "Locally signed staging package " +
+        ("is valid" if staging_signature["verified"] else "is not verified") +
+        "; independent production signing authority, security audit and "
+        "scoped penetration testing are not complete."
     )
     return {
         "milestone": "M1.5 full replacement", "decision": "BLOCKED" if blockers else "PASS",
@@ -155,6 +175,7 @@ def decide():
         "running_docker_container_count": live_count,
         "storage_safety":storage,
         "configuration_recovery_acceptance": config_acceptance,
+        "staging_signature_provenance": staging_signature,
         "unmet_exit_criteria": blockers,
         "evidence": {
             "source": "GitHub aicoach-alpha/OpenServerDesk",

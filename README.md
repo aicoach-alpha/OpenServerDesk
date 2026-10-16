@@ -53,6 +53,11 @@ strictly sanitized configuration-only acceptance report, with 5 of 9
 conditions verified and 4 high-stakes gates blocked. See
 docs/M1_LIVE_CUTOVER_PLAN_V0616_20261016.md.
 
+The v0.6.16 staging package now has a detached Ed25519 manifest
+signature verified by the M1 release-decision controller; this is
+LOCAL staging provenance, not independent production security signoff.
+See docs/M1_SIGNED_STAGE_V0616_20261016.md.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout
