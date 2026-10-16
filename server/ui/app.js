@@ -808,6 +808,7 @@ async function appstoreDetails(id) {
       " service(s). Review: "+(risks.join(", ")||"none indicated")+
       ". Production installation remains blocked.";
     await storeGeneralPreflight(id);
+    await storeCompilerPreview(id);
   } catch(err) {
     $("appstore-details").textContent=err.message;
   }
@@ -1023,5 +1024,32 @@ async function storeCoverageRefresh() {
       ". Not a runtime installation success count.";
   } catch(error) {
     $("store-general-coverage").textContent="Coverage unavailable: "+error.message;
+  }
+}
+
+
+async function storeCompilerPreview(id) {
+  if (!stageToken)return;
+  $("appstore-compile-preview").textContent="Checking multi-service staging compatibility…";
+  try {
+    const response=await fetch(
+      "/api/v1/stage/store-compile?id="+encodeURIComponent(id),
+      {cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}});
+    const data=await response.json();
+    if (!response.ok)throw Error(data.error||"Staging compiler unavailable");
+    if (data.migration_allowed!==false
+        || data.nextcloud_user_data_inspected!==false
+        || data.production_mutation_allowed!==false)
+      throw Error("Invalid compiler safety scope");
+    $("appstore-compile-preview").textContent=
+      "Staging service plan: "+data.service_count+
+      " services; start order: "+data.startup_order.join(" → ")+
+      "; isolated volumes: "+data.stage_volume_count+
+      "; immutable images cached: "+data.cached_immutable_images+
+      "/"+data.service_count+
+      ". Original ports, env and host bind sources discarded. "+
+      "App runtime functionality not yet verified.";
+  } catch(err) {
+    $("appstore-compile-preview").textContent="Multi-service plan: "+err.message;
   }
 }
