@@ -12,7 +12,7 @@ import tempfile
 
 REPO = Path(__file__).resolve().parents[2]
 BASE = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
-OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.16_amd64.deb")
+OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.18_amd64.deb")
 STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
 
 def main():
@@ -23,9 +23,10 @@ def main():
         tree.mkdir()
         subprocess.run(["dpkg-deb", "--extract", str(BASE), str(tree)], check=True)
         server = tree/"usr/lib/openserverdesk/server"
-        for name in ("app.py", "docker_readonly.py", "readiness.py", "stage_apps.py", "stage_storage.py", "stage_recovery.py"):
+        for name in ("app.py", "docker_readonly.py", "readiness.py", "stage_apps.py", "stage_storage.py", "stage_recovery.py", "stage_compose.py",
+                     "stage_compose_recovery.py"):
             shutil.copy2(REPO/"server"/name, server/name)
-        (server/"release-version.txt").write_text("0.6.16\n")
+        (server/"release-version.txt").write_text("0.6.18\n")
         # Ship the read-only real Docker/Compose data coverage inventory,
         # never invoke it during package installation.
         migration_tools = tree/"usr/lib/openserverdesk/tools"
@@ -46,7 +47,7 @@ def main():
         control = tree/"DEBIAN"
         control.mkdir()
         (control/"control").write_text(
-            "Package: openserverdesk-m1-candidate\nVersion: 0.6.16\n"
+            "Package: openserverdesk-m1-candidate\nVersion: 0.6.18\n"
             "Section: admin\nPriority: optional\nArchitecture: amd64\n"
             "Maintainer: OpenServerDesk staging <staging@example.invalid>\n"
             "Description: Full component staging payload with read-only Docker inventory UI\n"

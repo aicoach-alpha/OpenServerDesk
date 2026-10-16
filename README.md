@@ -58,6 +58,18 @@ signature verified by the M1 release-decision controller; this is
 LOCAL staging provenance, not independent production security signoff.
 See docs/M1_SIGNED_STAGE_V0616_20261016.md.
 
+OpenServerDesk's isolated application manager now supports a restricted
+**real Docker Compose app catalog**, including install/start/stop/restart/
+uninstall and stage-only persistent data, without any network/host port or
+access to legacy CasaOS/Nextcloud app data. This must not be confused with
+full production-equivalent application management.
+
+**v0.6.18 staged Compose workflows:** actual offline Docker Compose
+application templates, authenticated lifecycle, persistent stage-only files,
+and per-project checkpoint, rollback and undo. This is NOT a replacement for
+the full CasaOS app catalog. See
+docs/M1_STAGE_COMPOSE_APP_AND_ROLLBACK_V0618_20261016.md.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout

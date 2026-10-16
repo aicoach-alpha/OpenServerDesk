@@ -22,6 +22,14 @@ BACKUP_NAME = re.compile('backup-[0-9a-f]{12}\\Z')
 MAX_BACKUPS = 5
 
 
+def _reject_partial_compose_recovery():
+    # Legacy stage-file checkpoints cannot claim to restore a newly added
+    # Compose project. Use dedicated Compose checkpoint/recovery instead.
+    from stage_compose import _registry as compose_registry
+    if compose_registry():
+        raise AppError("compose_projects_require_separate_checkpoint", 409)
+
+
 def checksum(path):
     h=hashlib.sha256()
     with path.open('rb') as stream:
@@ -145,6 +153,7 @@ def list_backups():
 
 def checkpoint():
     with guarded():
+        _reject_partial_compose_recovery()
         _initialize_root()
         if (RECOVERY/'pending').exists():
             raise AppError('unresolved_stage_recovery_journal',409)
@@ -222,6 +231,7 @@ def restore(name):
     if not isinstance(name,str) or not BACKUP_NAME.fullmatch(name):
         raise AppError('invalid_stage_checkpoint_name',400)
     with guarded(allow_pending=True):
+        _reject_partial_compose_recovery()
         _initialize_root()
         pending=RECOVERY/'pending'
         if pending.exists() or pending.is_symlink():
@@ -264,6 +274,7 @@ def restore(name):
 
 def recover_interrupted():
     with guarded(allow_pending=True):
+        _reject_partial_compose_recovery()
         _initialize_root()
         reg=registry()
         pending=RECOVERY/'pending'

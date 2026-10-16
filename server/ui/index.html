@@ -72,6 +72,35 @@
       <thead><tr><th>Name</th><th>Image</th><th>State</th><th>Actions</th></tr></thead>
       <tbody id="stage-apps-list"></tbody>
     </table></div>
+    <h3>Docker Compose application catalog (isolated staging)</h3>
+    <p>Real Docker Compose installation from two locally cached and restricted
+      templates, with no published ports, no networking, and no access to
+      existing CasaOS apps or Nextcloud upload folders.</p>
+    <div class="stage-control">
+      <label for="stage-compose-template">Approved Compose template</label>
+      <select id="stage-compose-template" aria-label="Stage Compose template">
+        <option value="static-web">Offline static web (BusyBox)</option>
+        <option value="task-worker">Offline worker (BusyBox)</option>
+      </select>
+      <button type="button" id="stage-compose-install" disabled>Install stage Compose app</button>
+      <button type="button" id="stage-compose-refresh" disabled>Refresh Compose apps</button>
+    </div>
+    <p id="stage-compose-status" role="status">Connect as an authorized stage operator first.</p>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Project</th><th>Template</th><th>State</th><th>Actions</th></tr></thead>
+      <tbody id="stage-compose-list"></tbody>
+    </table></div>
+    <h3>Compose application backup and rollback</h3>
+    <p>Checkpoint only the isolated Compose project data. The restore
+      controller verifies exact container ownership and retains a durable
+      undo journal. It cannot read or restore Nextcloud user uploads.</p>
+    <div class="stage-control">
+      <button type="button" id="stage-compose-checkpoint" disabled>Create Compose checkpoint</button>
+      <button type="button" id="stage-compose-checkpoints-refresh" disabled>List Compose checkpoints</button>
+      <button type="button" id="stage-compose-recover" disabled>Recover interrupted Compose restore</button>
+    </div>
+    <p id="stage-compose-backup-status" role="status">Authenticate first.</p>
+    <div id="stage-compose-checkpoints" class="stage-files-list"></div>
     <h3>Stage local storage</h3>
     <p>Write, read and delete text files in isolated application storage only.</p>
     <div class="stage-control">

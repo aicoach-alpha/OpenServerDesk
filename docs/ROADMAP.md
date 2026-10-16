@@ -17,6 +17,13 @@ not imply full M1 release. Keep `migration_allowed=false`.
 - M1.5 REAL on-host platform-only SSD backup and staging-only restore verified: 1652 files, 3 SQLite databases; Nextcloud uploads and external HDD content excluded (PASS scoped, not atomic cross-service)
 - M1.5 Full product integration, safe in-place cutover, rollback and final security gate: PENDING
 
+- M1.5 Real staged Docker Compose catalog lifecycle and app-scoped durable
+  backup/rollback v0.6.18: LIVE staging PASS; both approved app templates,
+  authenticated API and UI, no network/ports, owner and bind checks. Limited
+  catalog is NOT production CasaOS app parity
+- M1.5 Existing CasaOS Docker lifecycle/write parity, security and production
+  readiness: still PENDING and must NOT touch user apps until approved
+
 ## M2 Docker core
 Discovery, CLI/Compose stacks, ports and logbook.
 

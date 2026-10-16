@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.16_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.18_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -30,7 +30,7 @@ def decide():
     pkg_version = command("dpkg-deb", "--field", str(PKG), "Version")
     if (pkg_name.returncode or pkg_version.returncode
             or pkg_name.stdout.strip() != "openserverdesk-m1-candidate"
-            or pkg_version.stdout.strip() != "0.6.16"):
+            or pkg_version.stdout.strip() != "0.6.18"):
         raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {

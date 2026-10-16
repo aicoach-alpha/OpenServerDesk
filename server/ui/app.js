@@ -149,6 +149,13 @@ async function stageRefresh() {
     for (const id of ["stage-file-save","stage-file-read","stage-file-delete"])
       $(id).disabled=false;
     stageFilesRefresh();
+    $("stage-compose-install").disabled=false;
+    $("stage-compose-refresh").disabled=false;
+    stageComposeRefresh();
+    for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
+                        "stage-compose-recover"])
+      $(name).disabled=false;
+    stageComposeBackupsRefresh();
     $("stage-checkpoint").disabled=false;
     $("stage-recovery-refresh").disabled=false;
     stageRecoveryRefresh();
@@ -167,6 +174,11 @@ async function stageRefresh() {
       tr.appendChild(tools);tbody.appendChild(tr);
     }
   } catch(err) {
+    $("stage-compose-install").disabled=true;
+    $("stage-compose-refresh").disabled=true;
+    for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
+                        "stage-compose-recover"])
+      $(name).disabled=true;
     $("stage-install").disabled=true;
     $("stage-message").textContent="Stage access: "+err.message;
   }
@@ -381,3 +393,107 @@ async function refreshCutoverPlan() {
   }
 }
 refreshCutoverPlan();
+
+async function stageComposeRequest(method, body) {
+  if (!stageToken) throw Error("Stage authentication required");
+  const opts={method,headers:{"Authorization":"Bearer "+stageToken},cache:"no-store"};
+  if (body) {
+    opts.headers["Content-Type"]="application/json";
+    opts.body=JSON.stringify(body);
+  }
+  const response=await fetch("/api/v1/stage/compose",opts);
+  const data=await response.json();
+  if (!response.ok) throw Error(data.error || "Compose action failed");
+  return data;
+}
+async function stageComposeRefresh() {
+  try {
+    const result=await stageComposeRequest("GET");
+    $("stage-compose-status").textContent=result.projects.length+
+      " isolated Compose projects; no existing CasaOS container can be changed.";
+    const tbody=$("stage-compose-list");
+    tbody.replaceChildren();
+    for (const project of result.projects) {
+      const tr=document.createElement("tr");
+      cell(tr,project.project);cell(tr,project.template);
+      const status=cell(tr,project.running?"running":"stopped");
+      status.className=project.running?"running":"inactive";
+      const tools=document.createElement("td");
+      for (const action of (project.running?["stop","restart","uninstall"]:["start","uninstall"])) {
+        tools.appendChild(stageButton(action,false,()=>stageComposeAct(action,project.project)));
+      }
+      tr.appendChild(tools);tbody.appendChild(tr);
+    }
+  } catch(err) {
+    $("stage-compose-status").textContent=err.message;
+  }
+}
+async function stageComposeAct(action, project) {
+  $("stage-compose-status").textContent="Stage Compose "+action+" in progress…";
+  try {
+    await stageComposeRequest("POST",{action,project});
+    await stageComposeRefresh();
+    refresh();
+  } catch(err) {
+    $("stage-compose-status").textContent=err.message;
+  }
+}
+$("stage-compose-install").addEventListener("click",async()=>{
+  $("stage-compose-install").disabled=true;
+  $("stage-compose-status").textContent="Installing the isolated Compose template…";
+  try {
+    await stageComposeRequest("POST",{action:"install",template:$("stage-compose-template").value});
+    await stageComposeRefresh();
+    refresh();
+  } catch(err) {
+    $("stage-compose-status").textContent=err.message;
+  } finally {
+    $("stage-compose-install").disabled=false;
+  }
+});
+$("stage-compose-refresh").addEventListener("click",stageComposeRefresh);
+
+async function composeBackupRequest(method, data) {
+  if (!stageToken) throw Error("Stage authentication required");
+  const opts={method,headers:{"Authorization":"Bearer "+stageToken},cache:"no-store"};
+  if (data) {
+    opts.headers["Content-Type"]="application/json";
+    opts.body=JSON.stringify(data);
+  }
+  const response=await fetch("/api/v1/stage/compose-backups",opts);
+  const result=await response.json();
+  if (!response.ok) throw Error(result.error || "Compose backup action failed");
+  return result;
+}
+async function stageComposeBackupsRefresh() {
+  try {
+    const result=await composeBackupRequest("GET");
+    $("stage-compose-backup-status").textContent=result.backups.length+
+      " isolated Compose checkpoints; pending recovery="+result.pending_recovery;
+    const holder=$("stage-compose-checkpoints");holder.replaceChildren();
+    for (const checkpoint of result.backups) {
+      const item=document.createElement("div");
+      item.textContent=checkpoint.id+" · "+checkpoint.projects+" projects ";
+      item.appendChild(stageButton("Restore",false,()=>stageComposeBackupAct("restore",checkpoint.id)));
+      item.appendChild(stageButton("Delete",false,()=>stageComposeBackupAct("delete",checkpoint.id)));
+      holder.appendChild(item);
+    }
+  } catch(err) {
+    $("stage-compose-backup-status").textContent=err.message;
+  }
+}
+async function stageComposeBackupAct(action,checkpoint) {
+  $("stage-compose-backup-status").textContent="Compose "+action+" in progress…";
+  try {
+    const body={action};
+    if (checkpoint) body.checkpoint=checkpoint;
+    await composeBackupRequest("POST",body);
+    await stageComposeBackupsRefresh();
+    await stageComposeRefresh();
+  } catch(err) {
+    $("stage-compose-backup-status").textContent=err.message;
+  }
+}
+$("stage-compose-checkpoint").addEventListener("click",()=>stageComposeBackupAct("checkpoint"));
+$("stage-compose-checkpoints-refresh").addEventListener("click",stageComposeBackupsRefresh);
+$("stage-compose-recover").addEventListener("click",()=>stageComposeBackupAct("recover"));

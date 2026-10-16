@@ -9,6 +9,8 @@ from pathlib import Path
 from collections import deque
 from urllib.parse import urlsplit, parse_qs
 from stage_storage import listing as stage_files_list, read as stage_file_read, perform as stage_file_action
+from stage_compose import catalog as stage_compose_catalog, list_projects as stage_compose_list, action as stage_compose_action
+from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
 from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -110,6 +112,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, {"error":"invalid_stage_file_query"})
             except AppError as err:
                 return self.respond(err.status, {"error":err.message})
+        if self.path == "/api/v1/stage/catalog":
+            try:
+                self._stage_auth()
+                return self.respond(200, stage_compose_catalog())
+            except AppError as err:
+                return self.respond(err.status, {"error": err.message})
+        if self.path == "/api/v1/stage/compose-backups":
+            try:
+                self._stage_auth()
+                return self.respond(200, compose_recovery_list())
+            except AppError as err:
+                return self.respond(err.status, {"error": err.message})
+        if self.path == "/api/v1/stage/compose":
+            try:
+                self._stage_auth()
+                return self.respond(200, stage_compose_list())
+            except AppError as err:
+                return self.respond(err.status, {"error": err.message})
         if self.path == "/api/v1/stage/apps":
             try:
                 self._stage_auth()
@@ -245,14 +265,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files",
-                             "/api/v1/stage/recovery"):
+                             "/api/v1/stage/recovery", "/api/v1/stage/compose",
+                             "/api/v1/stage/compose-backups"):
             return self.respond(405, {"error":"read_only"})
         try:
             self._stage_auth()
             if self.headers.get("Content-Type", "") != "application/json":
                 raise AppError("json_only", 415)
             size = int(self.headers.get("Content-Length", "0"))
-            limit = 512 if self.path.endswith("/apps") else 131072
+            limit = 512 if self.path.endswith(("/apps", "/compose", "/compose-backups")) else 131072
             if size < 2 or size > limit:
                 raise AppError("bad_request_size", 400)
             payload = json.loads(self.rfile.read(size))
@@ -262,6 +283,24 @@ class Handler(BaseHTTPRequestHandler):
                 if set(payload) not in ({"action"}, {"action", "name"}):
                     raise AppError("invalid_operation_request", 400)
                 return self.respond(200, stage_action(payload["action"], payload.get("name")))
+            if self.path.endswith("/compose"):
+                if set(payload) not in ({"action", "template"}, {"action", "project"}):
+                    raise AppError("invalid_compose_operation_request", 400)
+                if not isinstance(payload.get("action"), str):
+                    raise AppError("invalid_compose_operation_request", 400)
+                return self.respond(200, stage_compose_action(
+                    payload["action"], payload.get("project"), payload.get("template")))
+            if self.path.endswith("/compose-backups"):
+                action = payload.get("action")
+                if set(payload) == {"action"} and action == "checkpoint":
+                    return self.respond(200, compose_checkpoint())
+                if set(payload) == {"action"} and action == "recover":
+                    return self.respond(200, compose_recover())
+                if set(payload) == {"action", "checkpoint"} and action == "restore":
+                    return self.respond(200, compose_restore(payload["checkpoint"]))
+                if set(payload) == {"action", "checkpoint"} and action == "delete":
+                    return self.respond(200, compose_delete(payload["checkpoint"]))
+                raise AppError("invalid_compose_checkpoint_action", 400)
             if self.path.endswith("/recovery"):
                 if set(payload) == {"action"} and payload["action"] == "checkpoint":
                     return self.respond(200, stage_checkpoint())
