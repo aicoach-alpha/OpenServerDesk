@@ -21,6 +21,7 @@ from casaos_appstore import catalog as casaos_store_catalog, compatibility as ca
 from stage_store_installer import list_installs as store_pilot_list, action as store_pilot_action
 from stage_store_general import preflight as store_general_preflight, listing as store_general_listing, action as store_general_action
 from stage_store_runtime import listing as compiled_store_listing, operation as compiled_store_operation
+from stage_app_gateway import issue as stage_gateway_issue, proxy as stage_gateway_proxy
 from stage_store_coverage import coverage as stage_store_coverage
 from stage_store_compiler import preview as stage_store_compile_preview
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
@@ -91,7 +92,66 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+    def _stage_web(self):
+        # A scoped HttpOnly cookie is issued only after authenticated operator
+        # API access; never forward operator tokens or cookies upstream.
+        host=self.headers.get("Host","")
+        allowed={"127.0.0.1:"+str(self.server.server_port),
+                 "localhost:"+str(self.server.server_port)}
+        if host not in allowed:
+            return self.respond(403,{"error":"invalid_stage_web_host"})
+        origin=self.headers.get("Origin")
+        if origin and origin not in {"http://"+x for x in allowed}:
+            return self.respond(403,{"error":"invalid_stage_web_origin"})
+        try:
+            try:size=int(self.headers.get("Content-Length","0"))
+            except ValueError:raise AppError("invalid_stage_web_body_length",400)
+            if size<0 or size>1048576:
+                raise AppError("stage_web_body_too_large",413)
+            body=self.rfile.read(size) if size else b""
+            status,ctype,data,extra=stage_gateway_proxy(
+                self.command,self.path,self.headers.get("Cookie"),
+                dict(self.headers),body)
+            self.send_response(status)
+            self.send_header("Content-Type",ctype)
+            self.send_header("Content-Length",str(len(data)))
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Referrer-Policy","no-referrer")
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("X-Frame-Options","DENY")
+            self.send_header("Content-Security-Policy",
+                "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+                "connect-src 'self'; worker-src 'none'; frame-ancestors 'none'")
+            for k,v in extra.items(): self.send_header(k,v)
+            self.end_headers()
+            if self.command!="HEAD": self.wfile.write(data)
+        except AppError as err:
+            return self.respond(err.status,{"error":err.message})
+
+    def do_HEAD(self):
+        if self.path.startswith("/stage-app/"):
+            return self._stage_web()
+        return self.respond(405,{"error":"read_only"})
+
+    def do_PUT(self):
+        if self.path.startswith("/stage-app/"):
+            return self._stage_web()
+        return self.respond(405,{"error":"read_only"})
+
+    def do_PATCH(self):
+        if self.path.startswith("/stage-app/"):
+            return self._stage_web()
+        return self.respond(405,{"error":"read_only"})
+
+    def do_DELETE(self):
+        if self.path.startswith("/stage-app/"):
+            return self._stage_web()
+        return self.respond(405,{"error":"read_only"})
+
     def do_GET(self):
+        if self.path.startswith("/stage-app/"):
+            return self._stage_web()
         if self.path.startswith("/api/v1/stage/download?"):
             try:
                 self._stage_auth()
@@ -437,6 +497,33 @@ class Handler(BaseHTTPRequestHandler):
                 "permissions":["read","write"], "authentication":"legacy_stage_only"}
 
     def do_POST(self):
+        if self.path.startswith("/stage-app/"):
+            return self._stage_web()
+        if self.path=="/api/v1/stage/app-web-session":
+            try:
+                self._stage_auth()
+                if self.headers.get("Content-Type")!="application/json":
+                    raise AppError("json_only",415)
+                length=int(self.headers.get("Content-Length","0"))
+                if not 2<=length<=200:
+                    raise AppError("invalid_stage_web_session_size",400)
+                data=json.loads(self.rfile.read(length))
+                if not isinstance(data,dict) or set(data)!={"project"}:
+                    raise AppError("invalid_stage_web_session_request",400)
+                info,cookie=stage_gateway_issue(data["project"])
+                raw=json.dumps(info).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type","application/json")
+                self.send_header("Content-Length",str(len(raw)))
+                self.send_header("Cache-Control","no-store")
+                self.send_header("Set-Cookie",cookie)
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            except (TypeError,ValueError):
+                return self.respond(400,{"error":"invalid_stage_web_session_request"})
+            except AppError as err:
+                return self.respond(err.status,{"error":err.message})
         if self.path == "/api/v1/stage/upload":
             try:
                 self._stage_auth()

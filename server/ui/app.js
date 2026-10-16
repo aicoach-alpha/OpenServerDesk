@@ -1102,6 +1102,11 @@ async function compiledRefresh(){
       for(const action of actions){
         controls.appendChild(stageButton(action,!stageCanWrite,()=>compiledAct(action,app.project)));
       }
+      if(app.app_id==="default:MySpeed" && app.outbound_network_pilot===true
+         && app.all_running && !app.data_recovery_pending){
+        controls.appendChild(stageButton("Open app",!stageCanWrite,
+          ()=>compiledOpenWeb(app.project)));
+      }
       if(!running && !app.data_recovery_pending){
         for(const snapshot of (app.data_checkpoints||[])){
           controls.appendChild(stageButton("Restore "+snapshot,!stageCanWrite,
@@ -1121,6 +1126,24 @@ async function compiledRefresh(){
       state.pending_recovery.length+" pending recovery. Image/config rollback only; not database contents.";
     $("compiled-refresh").disabled=false;
   }catch(err){$("compiled-status").textContent="Managed store: "+err.message;}
+}
+async function compiledOpenWeb(project){
+  if(!stageToken||!stageCanWrite)return;
+  $("compiled-status").textContent="Authorizing isolated staging app browser…";
+  try{
+    const response=await fetch("/api/v1/stage/app-web-session",{
+      method:"POST",cache:"no-store",
+      headers:{"Authorization":"Bearer "+stageToken,"Content-Type":"application/json"},
+      body:JSON.stringify({project})
+    });
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||"Staging app access failed");
+    if(result.production_mutation_allowed!==false ||
+       result.scope!=="authenticated_myspeed_stage_only" ||
+       typeof result.entry!=="string" || !result.entry.startsWith("/stage-app/"+project+"/"))
+       throw Error("Unexpected staging app gateway scope");
+    window.location.assign(result.entry);
+  }catch(err){$("compiled-status").textContent="Cannot open app: "+err.message;}
 }
 async function compiledAct(action,project,checkpoint){
   if(["uninstall","rollback","recover","recover-data","restore-data"].includes(action) &&
