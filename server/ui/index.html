@@ -52,6 +52,24 @@
     <p id="cutover-next">Do not stop CasaOS or modify user data.</p>
   </div>
 </section>
+<section class="panel" aria-label="CasaOS Compose compatibility baseline">
+  <div class="toolbar">
+    <div><h2>CasaOS app compatibility baseline</h2>
+      <p id="parity-message">Reading safe platform Compose definitions only…</p>
+    </div>
+    <span class="status" id="parity-status">Compatibility not established</span>
+  </div>
+  <div class="coverage-grid">
+    <div><span>Installed CasaOS definitions</span><strong id="parity-config-count">—</strong></div>
+    <div><span>Valid definitions</span><strong id="parity-valid-count">—</strong></div>
+    <div><span>Existing Compose services</span><strong id="parity-service-count">—</strong></div>
+    <div><span>App imports E2E verified</span><strong id="parity-import-count">—</strong></div>
+    <div><span>Definitions needing support</span><strong id="parity-gap-count">—</strong></div>
+  </div>
+  <div class="progress-content"><p>Full parity requires supporting existing
+    Compose features in isolated preproduction testing. The application's
+    original data and Nextcloud external HDD are never copied or inspected.</p></div>
+</section>
 <section class="panel stage-apps" aria-label="Isolated staged Docker application lifecycle">
   <div class="toolbar">
     <div><h2>Stage app management</h2>

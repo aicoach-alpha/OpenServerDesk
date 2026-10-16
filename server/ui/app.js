@@ -497,3 +497,27 @@ async function stageComposeBackupAct(action,checkpoint) {
 $("stage-compose-checkpoint").addEventListener("click",()=>stageComposeBackupAct("checkpoint"));
 $("stage-compose-checkpoints-refresh").addEventListener("click",stageComposeBackupsRefresh);
 $("stage-compose-recover").addEventListener("click",()=>stageComposeBackupAct("recover"));
+
+async function refreshComposeParity() {
+  try {
+    const response=await fetch("/api/v1/m1/compose-parity",{cache:"no-store"});
+    if (!response.ok) throw Error("Compatibility baseline unavailable ("+response.status+")");
+    const data=await response.json();
+    if (data.migration_allowed !== false || data.nextcloud_user_files_opened !== false)
+      throw Error("Unexpected unsafe compatibility report");
+    $("parity-config-count").textContent=data.source_config_definitions;
+    $("parity-valid-count").textContent=data.valid_definitions;
+    $("parity-service-count").textContent=data.source_services;
+    $("parity-import-count").textContent=data.generally_importable_apps_e2e_verified+
+      "/"+data.source_config_definitions;
+    $("parity-gap-count").textContent=data.definitions_needing_additional_compose_support;
+    $("parity-status").textContent=data.general_casaos_compose_parity_proven ?
+      "App compatibility proven" : "APP PARITY NOT YET PROVEN";
+    $("parity-message").textContent="Safe YAML-only baseline checked "+
+      new Date(data.checked_at_utc).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})+
+      " WIB. No external user files accessed.";
+  } catch(err) {
+    $("parity-message").textContent=err.message;
+  }
+}
+refreshComposeParity();

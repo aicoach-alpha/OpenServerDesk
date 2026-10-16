@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.18_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.19_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -30,7 +30,7 @@ def decide():
     pkg_version = command("dpkg-deb", "--field", str(PKG), "Version")
     if (pkg_name.returncode or pkg_version.returncode
             or pkg_name.stdout.strip() != "openserverdesk-m1-candidate"
-            or pkg_version.stdout.strip() != "0.6.18"):
+            or pkg_version.stdout.strip() != "0.6.19"):
         raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {
@@ -69,6 +69,30 @@ def decide():
     if '"activation_implemented":False' in installer or '"rollback_implemented":False' in installer:
         blockers["complete_activation_rollback_controller"] = (
             "Migration installer explicitly reports activation/rollback not implemented."
+        )
+    try:
+        parity_path=Path("/opt/openserverdesk-dev/runtime-stage/M1_COMPOSE_COMPATIBILITY_PUBLIC.json")
+        if parity_path.is_symlink() or parity_path.stat().st_size > 8192:
+            raise ValueError("unsafe Compose parity assessment")
+        parity=json.loads(parity_path.read_text())
+        if (parity.get("scope")!="CASAOS_PLATFORM_COMPOSE_YAML_ONLY_NO_USER_DATA"
+                or parity.get("migration_allowed") is not False
+                or parity.get("nextcloud_user_files_opened") is not False
+                or parity.get("nextcloud_user_data_copied") is not False
+                or parity.get("production_modified") is not False):
+            raise ValueError("invalid Compose compatibility assessment")
+        if not parity.get("general_casaos_compose_parity_proven"):
+            blockers["casaos_compose_application_parity"] = (
+                str(parity["generally_importable_apps_e2e_verified"]) +
+                " of " + str(parity["source_config_definitions"]) +
+                " installed CasaOS Compose application definitions have "
+                "authenticated, isolated general import lifecycle and "
+                "restore proofs; full app parity is not yet demonstrated."
+            )
+    except (OSError,ValueError,TypeError,KeyError):
+        parity={"status":"unverified","migration_allowed":False}
+        blockers["casaos_compose_application_parity"] = (
+            "Real CasaOS Compose compatibility assessment unavailable."
         )
     # Replacing CasaOS is NOT a migration of Docker user bind data or
     # Nextcloud uploads. Only platform configuration and Compose definitions
@@ -176,6 +200,7 @@ def decide():
         "storage_safety":storage,
         "configuration_recovery_acceptance": config_acceptance,
         "staging_signature_provenance": staging_signature,
+        "compose_application_parity": parity,
         "unmet_exit_criteria": blockers,
         "evidence": {
             "source": "GitHub aicoach-alpha/OpenServerDesk",

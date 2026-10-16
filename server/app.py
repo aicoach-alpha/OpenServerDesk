@@ -34,6 +34,16 @@ UI = Path(__file__).resolve().parent / "ui"
 PROGRESS = Path("/opt/openserverdesk-dev/runtime-stage/progress/latest.json")
 PROGRESS_HISTORY = Path("/opt/openserverdesk-dev/runtime-stage/progress/history.jsonl")
 CUTOVER_PLAN = Path("/opt/openserverdesk-dev/runtime-stage/M1_CUTOVER_PLAN_PUBLIC.json")
+COMPOSE_COMPAT = Path("/opt/openserverdesk-dev/runtime-stage/M1_COMPOSE_COMPATIBILITY_PUBLIC.json")
+COMPOSE_COMPAT_FIELDS = {
+    "schema_version", "scope", "checked_at_utc", "source_config_definitions",
+    "valid_definitions", "invalid_definitions", "source_services",
+    "mount_declarations", "port_declarations",
+    "definitions_needing_additional_compose_support",
+    "generally_importable_apps_e2e_verified", "nextcloud_user_files_opened",
+    "nextcloud_user_data_copied", "production_modified",
+    "general_casaos_compose_parity_proven", "migration_allowed",
+}
 CUTOVER_FIELDS = {
     "schema_version", "checked_at_utc", "scope", "production_modified",
     "migration_allowed", "user_data_content_accessed", "external_hdd_backup_required",
@@ -172,6 +182,33 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (OSError, ValueError, TypeError):
                 return self.respond(503, {"error": "m1_progress_history_unavailable"})
+        if self.path == "/api/v1/m1/compose-parity":
+            try:
+                if COMPOSE_COMPAT.is_symlink() or COMPOSE_COMPAT.stat().st_size > 8192:
+                    raise ValueError("untrusted Compose parity report")
+                report=json.loads(COMPOSE_COMPAT.read_text())
+                if (set(report)!=COMPOSE_COMPAT_FIELDS
+                        or report["schema_version"]!=1
+                        or report["scope"]!="CASAOS_PLATFORM_COMPOSE_YAML_ONLY_NO_USER_DATA"
+                        or report["nextcloud_user_files_opened"] is not False
+                        or report["nextcloud_user_data_copied"] is not False
+                        or report["production_modified"] is not False
+                        or report["migration_allowed"] is not False
+                        or report["general_casaos_compose_parity_proven"] is not False
+                        or any(type(report[key]) is not int or report[key] < 0
+                               for key in ("source_config_definitions","valid_definitions",
+                                           "invalid_definitions","source_services",
+                                           "mount_declarations","port_declarations",
+                                           "definitions_needing_additional_compose_support",
+                                           "generally_importable_apps_e2e_verified"))
+                        or report["valid_definitions"]+report["invalid_definitions"]
+                            !=report["source_config_definitions"]
+                        or report["generally_importable_apps_e2e_verified"]>
+                           report["source_config_definitions"]):
+                    raise ValueError("invalid Compose parity data")
+                return self.respond(200,report)
+            except (OSError,ValueError,KeyError,TypeError):
+                return self.respond(503,{"error":"compose_parity_report_unavailable"})
         if self.path == "/api/v1/migration/cutover-plan":
             try:
                 if CUTOVER_PLAN.is_symlink() or CUTOVER_PLAN.stat().st_size > 8192:

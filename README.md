@@ -70,6 +70,12 @@ and per-project checkpoint, rollback and undo. This is NOT a replacement for
 the full CasaOS app catalog. See
 docs/M1_STAGE_COMPOSE_APP_AND_ROLLBACK_V0618_20261016.md.
 
+**CasaOS functional parity guard:** v0.6.19 reports all 18 installed
+Compose configurations (19 services) from safe, read-only platform YAML
+inspection and blocks production replacement until general application
+import and end-to-end compatibility are proved. See
+docs/M1_CASAOS_FUNCTIONAL_PARITY_BASELINE_20261016.md.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout

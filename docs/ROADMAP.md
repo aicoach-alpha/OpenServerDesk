@@ -21,6 +21,10 @@ not imply full M1 release. Keep `migration_allowed=false`.
   backup/rollback v0.6.18: LIVE staging PASS; both approved app templates,
   authenticated API and UI, no network/ports, owner and bind checks. Limited
   catalog is NOT production CasaOS app parity
+- M1.5 Real original CasaOS Compose compatibility baseline v0.6.19:
+  18 valid definitions, 19 services, 45 port and 21 mount declarations;
+  0/18 actual general imported apps E2E; Live staging read-only parity
+  dashboard and release blocker ACTIVE (not full product parity).
 - M1.5 Existing CasaOS Docker lifecycle/write parity, security and production
   readiness: still PENDING and must NOT touch user apps until approved
 

@@ -17,7 +17,7 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path("/opt/openserverdesk-dev/runtime-stage/progress")
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.18_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.19_amd64.deb")
 URL = "http://127.0.0.1:18690"
 
 # Explicitly frozen acceptance criteria/weights. Add new independently
@@ -70,7 +70,7 @@ def collect():
     message = command("git", "-C", str(ROOT), "show", "-s", "--format=%s", "HEAD")
     status = command("git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no")
     ver = command("dpkg-deb", "--field", str(PKG), "Version")
-    pkg_files = command("dpkg-deb", "--contents", str(PKG), timeout=16) if ver == "0.6.18" else ""
+    pkg_files = command("dpkg-deb", "--contents", str(PKG), timeout=16) if ver == "0.6.19" else ""
     required = (
         "usr/lib/openserverdesk/bin/casaos",
         "usr/lib/openserverdesk/bin/CasaOS-Gateway",
@@ -126,7 +126,7 @@ def collect():
         attestation = json.loads(proof_file.read_text())
         recovery = attestation["configuration_recovery_acceptance"]
         checks["config_recovery"] = (
-            payload and ver == "0.6.18"
+            payload and ver == "0.6.19"
             and attestation["migration_allowed"] is False
             and recovery["platform_backup_verified"] is True
             and recovery["staging_restore_verified"] is True
