@@ -185,8 +185,9 @@
 </div>
 </section>
 <section class="panel">
-<div class="toolbar"><div><h2>Containers</h2><p id="message" role="status">Loading live inventory…</p></div><button type="button" id="refresh">Refresh</button></div>
-<div class="table-scroll"><table><thead><tr><th>Name</th><th>Image</th><th>State</th><th>Compose project</th><th>Ports</th></tr></thead><tbody id="containers"></tbody></table></div>
+<div class="toolbar"><div><h2>Containers and resource use</h2><p id="message" role="status">Loading live inventory…</p></div><button type="button" id="refresh">Refresh</button></div>
+<p id="docker-resources-status" role="status">CPU and RAM counters read only; no container logs or user-data mounts.</p>
+<div class="table-scroll"><table><thead><tr><th>Name</th><th>Image</th><th>State</th><th>Compose project</th><th>Ports</th><th>CPU</th><th>Memory used</th><th>PIDs</th></tr></thead><tbody id="containers"></tbody></table></div>
 </section>
 <footer>Staging interface. Container management, migration, and production cutover are not enabled.</footer>
 </main>

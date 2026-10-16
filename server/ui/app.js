@@ -15,6 +15,22 @@ async function refresh() {
     $("total").textContent = data.container_count;
     $("running").textContent = data.states.running || 0;
     $("projects").textContent = data.compose_projects.length;
+    let resourceById = new Map();
+    try {
+      const statsResponse = await fetch("/api/v1/docker/resources", {cache:"no-store"});
+      if (!statsResponse.ok) throw Error("Live resource counters unavailable");
+      const stats = await statsResponse.json();
+      if (stats.source !== "local_docker_resource_metrics_readonly" ||
+          stats.production_modified !== false ||
+          stats.external_user_data_inspected !== false)
+        throw Error("Unexpected Docker resource data");
+      resourceById = new Map(stats.containers.map(r => [r.id, r]));
+      $("docker-resources-status").textContent =
+        "Live CPU, RAM and process counters for " + stats.container_count +
+        " Docker containers · read-only";
+    } catch (statsError) {
+      $("docker-resources-status").textContent = statsError.message;
+    }
     const body = $("containers");
     body.replaceChildren();
     for (const c of data.containers) {
@@ -25,6 +41,10 @@ async function refresh() {
       status.className = c.state === "running" ? "running" : "inactive";
       cell(row, c.compose_project);
       cell(row, c.ports.map(p => p.public ? p.public + ":" + p.private : p.private).join(", "));
+      const resource = resourceById.get(c.id);
+      cell(row, resource ? resource.cpu_percent.toFixed(2) + "%" : "—");
+      cell(row, resource ? (resource.memory_used_bytes / (1024 * 1024)).toFixed(1) + " MiB" : "—");
+      cell(row, resource && resource.pids != null ? resource.pids : "—");
       body.appendChild(row);
     }
     $("message").textContent = data.container_count + " containers from the local Docker Engine";

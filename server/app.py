@@ -4,6 +4,7 @@ import os
 import re
 from readiness import readiness
 from docker_readonly import inventory, InventoryUnavailable
+from docker_metrics import metrics as docker_resource_metrics, MetricsUnavailable
 from stage_apps import authenticate as stage_auth, list_apps as stage_list, action as stage_action, AppError, enabled as stage_enabled
 from stage_users import authorize as user_authorize, enabled as users_enabled, IdentityError
 from pathlib import Path
@@ -311,6 +312,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200, inventory())
             except (InventoryUnavailable, ValueError):
                 return self.respond(503, {"error": "docker_inventory_unavailable"})
+        if self.path == "/api/v1/docker/resources":
+            try:
+                return self.respond(200, docker_resource_metrics())
+            except (MetricsUnavailable, InventoryUnavailable, ValueError):
+                return self.respond(503, {"error": "docker_resource_metrics_unavailable"})
         if self.path == "/health":
             return self.respond(200, {"status":"ok","service":"openserverdesk","version":VERSION,"environment":"staging"})
         if self.path == "/api/v1/migration/readiness":
