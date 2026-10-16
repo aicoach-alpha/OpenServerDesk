@@ -120,6 +120,7 @@ refreshProgress();
 // 15-minute server monitor explicitly disabled by operator; no timed polling.
 
 let stageToken = "";
+let stageCanWrite = false;
 async function stageRequest(method, body) {
   if (!stageToken) throw Error("Enter operator token first");
   const options = {method, cache:"no-store", headers:{"Authorization":"Bearer " + stageToken}};
@@ -142,21 +143,30 @@ function stageButton(text, disabled, callback) {
 }
 async function stageRefresh() {
   try {
+    const identityResponse=await fetch("/api/v1/stage/whoami", {
+      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+    });
+    const identity=await identityResponse.json();
+    if (!identityResponse.ok) throw Error(identity.error||"Stage identity unavailable");
+    stageCanWrite=Array.isArray(identity.permissions) &&
+      identity.permissions.includes("write");
     const data=await stageRequest("GET");
-    $("stage-message").textContent="Authorized; " + data.apps.length +
-      " isolated stage apps · CasaOS production is not editable.";
-    $("stage-install").disabled=false;
-    for (const id of ["stage-file-save","stage-file-read","stage-file-delete"])
-      $(id).disabled=false;
+    $("stage-message").textContent="Authenticated "+identity.actor+
+      " ("+identity.role+"); "+data.apps.length+
+      " isolated stage apps · production CasaOS is not editable.";
+    $("stage-install").disabled=!stageCanWrite;
+    $("stage-file-save").disabled=!stageCanWrite;
+    $("stage-file-read").disabled=false;
+    $("stage-file-delete").disabled=!stageCanWrite;
     stageFilesRefresh();
-    $("stage-compose-install").disabled=false;
+    $("stage-compose-install").disabled=!stageCanWrite;
     $("stage-compose-refresh").disabled=false;
     stageComposeRefresh();
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
-      $(name).disabled=false;
+      $(name).disabled=!stageCanWrite;
     stageComposeBackupsRefresh();
-    $("stage-checkpoint").disabled=false;
+    $("stage-checkpoint").disabled=!stageCanWrite;
     $("stage-recovery-refresh").disabled=false;
     stageRecoveryRefresh();
     const tbody=$("stage-apps-list");
@@ -169,11 +179,12 @@ async function stageRefresh() {
       const tools=document.createElement("td");
       const actions=a.running?["stop","restart","uninstall"]:["start","uninstall"];
       for (const action of actions) {
-        tools.appendChild(stageButton(action,false,()=>stageAct(action,a.name)));
+        tools.appendChild(stageButton(action,!stageCanWrite,()=>stageAct(action,a.name)));
       }
       tr.appendChild(tools);tbody.appendChild(tr);
     }
   } catch(err) {
+    stageCanWrite=false;
     $("stage-compose-install").disabled=true;
     $("stage-compose-refresh").disabled=true;
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
@@ -197,7 +208,7 @@ async function stageAct(action,name) {
 $("stage-connect").addEventListener("click",()=>{
   stageToken=$("stage-token").value.trim();
   $("stage-token").value="";
-  $("stage-recover-interrupted").disabled=!stageToken;
+  $("stage-recover-interrupted").disabled=true;
   stageRefresh();
 });
 $("stage-install").addEventListener("click",()=>stageAct("install"));
@@ -282,8 +293,8 @@ async function stageRecoveryRefresh() {
     list.replaceChildren();
     for (const item of data.backups.slice().reverse()) {
       const b=stageButton("Restore "+item.id+" ("+item.files+" files)",
-        false,()=>stageRestore(item.id));
-      const remove=stageButton("Delete "+item.id,false,async()=>{
+        !stageCanWrite,()=>stageRestore(item.id));
+      const remove=stageButton("Delete "+item.id,!stageCanWrite,async()=>{
         if (!confirm("Permanently delete this STAGING backup?")) return;
         try {
           await stageRecoveryApi("POST",{action:"delete",checkpoint:item.id});
@@ -448,7 +459,7 @@ $("stage-compose-install").addEventListener("click",async()=>{
   } catch(err) {
     $("stage-compose-status").textContent=err.message;
   } finally {
-    $("stage-compose-install").disabled=false;
+    $("stage-compose-install").disabled=!stageCanWrite;
   }
 });
 $("stage-compose-refresh").addEventListener("click",stageComposeRefresh);

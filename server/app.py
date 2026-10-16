@@ -5,6 +5,7 @@ import re
 from readiness import readiness
 from docker_readonly import inventory, InventoryUnavailable
 from stage_apps import authenticate as stage_auth, list_apps as stage_list, action as stage_action, AppError, enabled as stage_enabled
+from stage_users import authorize as user_authorize, enabled as users_enabled, IdentityError
 from pathlib import Path
 from collections import deque
 from urllib.parse import urlsplit, parse_qs
@@ -79,6 +80,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
     def do_GET(self):
+        if self.path == "/api/v1/stage/whoami":
+            try:
+                return self.respond(200, self._stage_auth())
+            except AppError as err:
+                return self.respond(err.status, {"error": err.message})
         if self.path in ("/", "/ui", "/ui/", "/ui/index.html",
                          "/ui/app.js", "/ui/style.css"):
             asset = {"/": "index.html", "/ui": "index.html",
@@ -304,7 +310,18 @@ class Handler(BaseHTTPRequestHandler):
             raise AppError("invalid_stage_host_header", 403)
         if origin and origin not in allowed:
             raise AppError("invalid_stage_origin", 403)
-        stage_auth(self.headers.get("Authorization"))
+        provided = self.headers.get("Authorization")
+        if users_enabled():
+            try:
+                permission = "read" if self.command == "GET" else "write"
+                actor = user_authorize(provided, permission)
+                return {"actor":actor["actor"], "role":actor["role"],
+                        "permissions":actor["permissions"], "authentication":"stage_multiuser"}
+            except IdentityError as err:
+                raise AppError(err.code,err.status)
+        stage_auth(provided)
+        return {"actor":"legacy_staging_operator", "role":"administrator",
+                "permissions":["read","write"], "authentication":"legacy_stage_only"}
 
     def do_POST(self):
         if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files",
