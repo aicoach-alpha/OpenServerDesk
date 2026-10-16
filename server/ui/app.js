@@ -158,6 +158,8 @@ async function stageRefresh() {
     $("stage-file-save").disabled=!stageCanWrite;
     $("stage-file-read").disabled=false;
     $("stage-file-delete").disabled=!stageCanWrite;
+    $("stage-binary-upload").disabled=!stageCanWrite;
+    $("stage-binary-download").disabled=false;
     stageFilesRefresh();
     $("stage-compose-install").disabled=!stageCanWrite;
     $("stage-compose-refresh").disabled=false;
@@ -191,6 +193,8 @@ async function stageRefresh() {
                         "stage-compose-recover"])
       $(name).disabled=true;
     $("stage-install").disabled=true;
+    $("stage-binary-upload").disabled=true;
+    $("stage-binary-download").disabled=true;
     $("stage-message").textContent="Stage access: "+err.message;
   }
 }
@@ -273,6 +277,58 @@ async function stageFileAction(action) {
 $("stage-file-save").addEventListener("click",()=>stageFileAction("create"));
 $("stage-file-read").addEventListener("click",()=>stageFileAction("read"));
 $("stage-file-delete").addEventListener("click",()=>stageFileAction("delete"));
+
+async function stageBinaryUpload() {
+  const selected=$("stage-binary-input").files?.[0];
+  if (!selected || selected.size>65536 || !stageCanWrite) {
+    $("stage-files-status").textContent="Choose a writable stage-only file up to 64 KiB";
+    return;
+  }
+  try {
+    const result=await fetch("/api/v1/stage/upload",{
+      method:"POST",cache:"no-store",
+      headers:{
+        "Authorization":"Bearer "+stageToken,
+        "Content-Type":"application/octet-stream",
+        "X-OSD-Filename":selected.name
+      },
+      body:await selected.arrayBuffer()
+    });
+    const message=await result.json();
+    if (!result.ok) throw Error(message.error||"Stage upload rejected");
+    $("stage-files-status").textContent="Uploaded "+message.created+" to isolated stage only";
+    $("stage-file-name").value=message.created;
+    await stageFilesRefresh();
+  } catch(error) {
+    $("stage-files-status").textContent="Stage upload error: "+error.message;
+  }
+}
+async function stageBinaryDownload() {
+  const name=$("stage-file-name").value.trim();
+  if (!name || !stageToken) return;
+  try {
+    const response=await fetch("/api/v1/stage/download?name="+encodeURIComponent(name),{
+      method:"GET",cache:"no-store",
+      headers:{"Authorization":"Bearer "+stageToken}
+    });
+    if (!response.ok) {
+      const error=await response.json();
+      throw Error(error.error||"Stage download rejected");
+    }
+    const file=await response.blob();
+    const objectUrl=URL.createObjectURL(file);
+    const link=document.createElement("a");
+    link.href=objectUrl;
+    link.download=name;
+    link.click();
+    URL.revokeObjectURL(objectUrl);
+    $("stage-files-status").textContent="Downloaded "+name+" from isolated stage";
+  } catch(error) {
+    $("stage-files-status").textContent="Stage download error: "+error.message;
+  }
+}
+$("stage-binary-upload").addEventListener("click",stageBinaryUpload);
+$("stage-binary-download").addEventListener("click",stageBinaryDownload);
 
 async function stageRecoveryApi(method,payload) {
   if (!stageToken) throw Error("Operator token required");

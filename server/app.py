@@ -9,7 +9,10 @@ from stage_users import authorize as user_authorize, enabled as users_enabled, I
 from pathlib import Path
 from collections import deque
 from urllib.parse import urlsplit, parse_qs
-from stage_storage import listing as stage_files_list, read as stage_file_read, perform as stage_file_action
+from stage_storage import (listing as stage_files_list, read as stage_file_read,
+                           perform as stage_file_action,
+                           create_binary as stage_upload_bytes,
+                           download_binary as stage_download_bytes, MAX_FILE as STAGE_MAX_FILE)
 from stage_compose import catalog as stage_compose_catalog, list_projects as stage_compose_list, action as stage_compose_action
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
 from host_status import status as host_status, HostStatusError
@@ -80,6 +83,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
     def do_GET(self):
+        if self.path.startswith("/api/v1/stage/download?"):
+            try:
+                self._stage_auth()
+                parsed=urlsplit(self.path)
+                values=parse_qs(parsed.query,strict_parsing=True,max_num_fields=2)
+                if set(values)!={"name"} or len(values["name"])!=1:
+                    raise AppError("invalid_binary_file_query",400)
+                filename=values["name"][0]
+                data=stage_download_bytes(filename)
+                self.send_response(200)
+                self.send_header("Content-Type","application/octet-stream")
+                self.send_header("Content-Disposition","attachment")
+                self.send_header("Cache-Control","no-store")
+                self.send_header("X-Content-Type-Options","nosniff")
+                self.send_header("Content-Length",str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            except (TypeError,ValueError):
+                return self.respond(400,{"error":"invalid_binary_file_query"})
+            except AppError as err:
+                return self.respond(err.status,{"error":err.message})
         if self.path == "/api/v1/stage/whoami":
             try:
                 return self.respond(200, self._stage_auth())
@@ -324,6 +349,24 @@ class Handler(BaseHTTPRequestHandler):
                 "permissions":["read","write"], "authentication":"legacy_stage_only"}
 
     def do_POST(self):
+        if self.path == "/api/v1/stage/upload":
+            try:
+                self._stage_auth()
+                if self.headers.get("Content-Type")!="application/octet-stream":
+                    raise AppError("binary_only",415)
+                try:
+                    size=int(self.headers.get("Content-Length","-1"))
+                except ValueError:
+                    raise AppError("invalid_binary_length",400)
+                if size<0 or size>STAGE_MAX_FILE:
+                    raise AppError("binary_upload_size_invalid",413)
+                filename=self.headers.get("X-OSD-Filename")
+                data=self.rfile.read(size)
+                if len(data)!=size:
+                    raise AppError("binary_upload_incomplete",400)
+                return self.respond(200,stage_upload_bytes(filename,data))
+            except AppError as err:
+                return self.respond(err.status,{"error":err.message})
         if self.path not in ("/api/v1/stage/apps", "/api/v1/stage/files",
                              "/api/v1/stage/recovery", "/api/v1/stage/compose",
                              "/api/v1/stage/compose-backups"):

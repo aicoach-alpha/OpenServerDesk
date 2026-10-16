@@ -147,6 +147,12 @@
       <button type="button" id="stage-file-delete" disabled>Delete</button>
     </div>
     <textarea id="stage-file-content" rows="5" placeholder="Staging file contents; max 64 KiB"></textarea>
+    <div class="stage-control">
+      <label for="stage-binary-input">Stage-only binary file (max 64 KiB)</label>
+      <input type="file" id="stage-binary-input" />
+      <button id="stage-binary-upload" type="button" disabled>Upload isolated file</button>
+      <button id="stage-binary-download" type="button" disabled>Download selected file</button>
+    </div>
     <p id="stage-files-status" role="status">Authenticate to manage stage-local files.</p>
     <div id="stage-files-list" class="stage-files-list"></div>
     <h3>Stage-only checkpoint and rollback</h3>

@@ -117,3 +117,50 @@ def perform(action, name, content=None):
             raise AppError('stage_storage_action_failed', 503)
         finally:
             os.close(fd)
+
+
+def create_binary(name, content):
+    """Create stage-owned binary data, no overwrite, no external paths."""
+    name=_name(name)
+    if not isinstance(content,bytes) or len(content)>MAX_FILE:
+        raise AppError("stage_binary_content_invalid",413)
+    with guarded():
+        fd=_dirfd()
+        try:
+            if len(os.listdir(fd))>=LIMIT:
+                raise AppError("stage_file_capacity_reached",409)
+            try:
+                handle=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,
+                               0o600,dir_fd=fd)
+            except FileExistsError:
+                raise AppError("existing_stage_file_must_not_be_overwritten",409)
+            with os.fdopen(handle,"wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.fsync(fd)
+            return {"created":name,"bytes":len(content),
+                    "scope":"isolated_stage_file_store"}
+        finally:
+            os.close(fd)
+
+
+def download_binary(name):
+    """Return verified stage-only file bytes; no path lookup outside dirfd."""
+    name=_name(name)
+    with guarded():
+        fd=_dirfd()
+        try:
+            _regular(fd,name)
+            handle=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=fd)
+            with os.fdopen(handle,"rb") as stream:
+                st=os.fstat(stream.fileno())
+                if (not stat.S_ISREG(st.st_mode) or st.st_nlink!=1
+                        or st.st_size>MAX_FILE):
+                    raise AppError("unsafe_stage_file",403)
+                data=stream.read(MAX_FILE+1)
+            if len(data)>MAX_FILE:
+                raise AppError("unsafe_stage_file",403)
+            return data
+        finally:
+            os.close(fd)
