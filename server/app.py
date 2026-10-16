@@ -20,6 +20,7 @@ from stage_topology_health import inspect as stage_topology_health
 from casaos_appstore import catalog as casaos_store_catalog, compatibility as casaos_store_compatibility
 from stage_store_installer import list_installs as store_pilot_list, action as store_pilot_action
 from stage_store_general import preflight as store_general_preflight, listing as store_general_listing, action as store_general_action
+from stage_store_runtime import listing as compiled_store_listing, operation as compiled_store_operation
 from stage_store_coverage import coverage as stage_store_coverage
 from stage_store_compiler import preview as stage_store_compile_preview
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
@@ -174,6 +175,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, {"error":"invalid_stage_file_query"})
             except AppError as err:
                 return self.respond(err.status, {"error":err.message})
+        if self.path == "/api/v1/stage/store-compiled":
+            try:
+                self._stage_auth()
+                return self.respond(200,compiled_store_listing())
+            except AppError as err:
+                return self.respond(err.status,{"error":err.message})
         if self.path == "/api/v1/stage/store-coverage":
             try:
                 self._stage_auth()
@@ -452,7 +459,8 @@ class Handler(BaseHTTPRequestHandler):
                              "/api/v1/stage/recovery", "/api/v1/stage/compose",
                              "/api/v1/stage/compose-backups", "/api/v1/stage/topologies",
                              "/api/v1/stage/casaos-store-pilot",
-                             "/api/v1/stage/store-general"):
+                             "/api/v1/stage/store-general",
+                             "/api/v1/stage/store-compiled"):
             return self.respond(405, {"error":"read_only"})
         try:
             self._stage_auth()
@@ -465,6 +473,14 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(size))
             if not isinstance(payload, dict):
                 raise AppError("invalid_operation_request", 400)
+            if self.path.endswith("/store-compiled"):
+                op=payload.get("action")
+                if set(payload)=={"action","id"} and op=="install":
+                    return self.respond(200,compiled_store_operation("install",app_id=payload["id"]))
+                if set(payload)=={"action","project"} and op in (
+                    "start","stop","restart","uninstall","update","rollback","recover"):
+                    return self.respond(200,compiled_store_operation(op,project=payload["project"]))
+                raise AppError("invalid_compiled_store_request",400)
             if self.path.endswith("/store-general"):
                 if set(payload)=={"action","id"} and payload.get("action") in ("prepare","install"):
                     return self.respond(200,store_general_action(payload["action"],app_id=payload["id"]))

@@ -122,6 +122,20 @@
   </div>
   <p id="store-general-status" role="status">Selected app must have a pinned image already in Docker cache; no original ports, networks, or host volumes are reused.</p>
   <div id="store-general-list"></div>
+  <h3>Managed multi-service App Store — staging</h3>
+  <p>Select an app from the catalogue, review its immutable-image readiness,
+     then install and manage the complete isolated Compose project.
+     App containers never reuse CasaOS production paths. Application data
+     rollback and public web hosting are not yet supported.</p>
+  <div class="stage-control">
+    <button type="button" id="compiled-install" disabled>Install selected multi-service app</button>
+    <button type="button" id="compiled-refresh" disabled>Refresh managed apps</button>
+  </div>
+  <p id="compiled-status" role="status">Authenticate to manage isolated App Store projects.</p>
+  <div class="table-scroll"><table>
+    <thead><tr><th>App / Project</th><th>Services</th><th>Revision</th><th>Actions</th></tr></thead>
+    <tbody id="compiled-list"></tbody>
+  </table></div>
   <h3>CasaOS store installation coverage</h3>
   <p id="store-general-coverage" role="status">Coverage not loaded. Staging only; static eligibility is not runtime parity.</p>
   <h3>Actual App Store install pilot (sandbox only)</h3>

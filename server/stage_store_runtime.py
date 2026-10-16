@@ -10,6 +10,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import subprocess
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
@@ -22,6 +23,61 @@ CID=re.compile(r"[0-9a-f]{64}\Z")
 OWNER=re.compile(r"[0-9a-f]{32}\Z")
 IMMUTABLE=re.compile(r"sha256:[0-9a-f]{64}\Z")
 MAX_PROJECTS=2
+PORT=re.compile(r"127\.0\.0\.1:(18[7-9][0-9]{2}|19[0-9]{3}):([0-9]{1,5})\Z")
+# A dedicated internal bridge lets services communicate but has no external egress.
+# A single app HTTP port may be published ONLY to local loopback.
+def _pick_port(project):
+    start=int(hashlib.sha256(project.encode()).hexdigest()[:6],16)%1280
+    for offset in range(1280):
+        port=18720+(start+offset)%1280
+        with socket.socket() as sock:
+            try: sock.bind(("127.0.0.1",port))
+            except OSError: continue
+        return port
+    raise AppError("no_free_staging_loopback_port",409)
+
+def _published_port(manifest):
+    seen=[]
+    for spec in manifest["services"].values():
+        seen+=spec.get("ports",[])
+    if not seen:return None
+    if len(seen)!=1 or not isinstance(seen[0],str):
+        raise AppError("unsafe_compiled_ports",403)
+    match=PORT.fullmatch(seen[0])
+    if not match:raise AppError("unsafe_compiled_ports",403)
+    return int(match.group(1))
+
+def _network_check(project,manifest,cfg,host,obj):
+    if cfg.get("network_mode")=="none":
+        if host.get("NetworkMode")!="none" or host.get("PortBindings"):
+            raise AppError("compiled_stage_network_violation",403)
+        return
+    if cfg.get("networks")!=["isolated"] or manifest.get("networks")!={"isolated":{"internal":True}}:
+        raise AppError("compiled_stage_network_definition_changed",403)
+    network=project+"_isolated"
+    if host.get("NetworkMode")!=network:
+        raise AppError("compiled_stage_network_changed",403)
+    try:
+        info=json.loads(docker("network","inspect",network,timeout=20))[0]
+    except (ValueError,TypeError,IndexError):
+        raise AppError("compiled_stage_network_inspection_failed",503)
+    labels=info.get("Labels") or {}
+    if (info.get("Name")!=network or info.get("Internal") is not True or
+            info.get("Driver")!="bridge" or
+            labels.get("com.docker.compose.project")!=project or
+            labels.get("com.docker.compose.network")!="isolated"):
+        raise AppError("compiled_stage_foreign_network",403)
+    declared=cfg.get("ports",[])
+    portmap=host.get("PortBindings") or {}
+    expected={}
+    for port in declared:
+        m=PORT.fullmatch(port)
+        if not m or not 1<=int(m.group(2))<=65535:
+            raise AppError("compiled_stage_unsafe_port",403)
+        expected[str(int(m.group(2)))+"/tcp"]=[{"HostIp":"127.0.0.1","HostPort":m.group(1)}]
+    if portmap!=expected:
+        raise AppError("compiled_stage_port_mapping_changed",403)
+
 
 def docker(*args, timeout=95):
     try:
@@ -88,8 +144,11 @@ def _projects():
     return values
 
 def _validate(project,manifest,owner):
-    if not isinstance(manifest,dict) or set(manifest)!={"name","services"} or manifest["name"]!=project:
+    if not isinstance(manifest,dict) or set(manifest) not in (
+        {"name","services"},{"name","services","networks"}) or manifest["name"]!=project:
         raise AppError("invalid_compiled_manifest",403)
+    if "networks" in manifest and manifest["networks"]!={"isolated":{"internal":True}}:
+        raise AppError("unsafe_compiled_networks",403)
     services=manifest["services"]
     if not isinstance(services,dict) or not 1<=len(services)<=6:
         raise AppError("invalid_compiled_services",403)
@@ -97,6 +156,7 @@ def _validate(project,manifest,owner):
     if base.is_symlink() or not base.is_dir():
         raise AppError("unsafe_compiled_stage_directory",403)
     used=[]
+    public=[]
     for name,cfg in sorted(services.items()):
         if not isinstance(name,str) or not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]{0,35}",name):
             raise AppError("invalid_compiled_service",403)
@@ -107,14 +167,24 @@ def _validate(project,manifest,owner):
                   "osd.m1.compiled.service":name,
                   "osd.m1.compiled.app":cfg.get("labels",{}).get("osd.m1.compiled.app"),
                   "osd.m1.compiled.owner":owner}
-        if (cfg.get("network_mode")!="none" or cfg.get("user")!="1000:1000"
+        network_ok=(cfg.get("network_mode")=="none" and "networks" not in manifest and not cfg.get("networks"))
+        network_ok=network_ok or (cfg.get("networks")==["isolated"] and
+            "network_mode" not in cfg and "networks" in manifest)
+        if (not network_ok or cfg.get("user")!="1000:1000"
             or cfg.get("pull_policy")!="never" or cfg.get("cap_drop")!=["ALL"]
             or cfg.get("security_opt")!=["no-new-privileges:true"]
             or cfg.get("restart")!="no" or cfg.get("labels")!=expected
-            or cfg.get("ports") or cfg.get("privileged")
+            or cfg.get("privileged")
             or cfg.get("environment") or cfg.get("env_file")
             or cfg.get("devices") or cfg.get("build")):
             raise AppError("unsafe_compiled_service_settings",403)
+        ports=cfg.get("ports",[])
+        if not isinstance(ports,list) or len(ports)>1 or (ports and
+           ("networks" not in manifest or not isinstance(ports[0],str) or
+            not PORT.fullmatch(ports[0]) or
+            not 1<=int(PORT.fullmatch(ports[0]).group(2))<=65535)):
+            raise AppError("unsafe_compiled_ports",403)
+        public.extend(ports)
         mounts=cfg.get("volumes",[])
         if not isinstance(mounts,list) or len(mounts)>5:
             raise AppError("unsafe_compiled_volume_count",403)
@@ -130,6 +200,8 @@ def _validate(project,manifest,owner):
             used.append(str(src))
     if len(used)!=len(set(used)):
         raise AppError("duplicate_compiled_stage_volume",403)
+    if len(public)>1:
+        raise AppError("too_many_compiled_public_ports",403)
 
 def _compose_path(project):
     return _file(_folder(project)/"compose.json")
@@ -163,11 +235,11 @@ def _owned(project,manifest,owner):
             or cfg.get("User")!="1000:1000"
             or any(labels.get(k)!=v for k,v in expected.items())
             or labels.get("com.docker.compose.project")!=project
-            or host.get("NetworkMode")!="none"
             or host.get("Privileged") is not False
-            or host.get("PortBindings") or source_pairs!=expected_pairs
+            or source_pairs!=expected_pairs
             or any(x.get("Type")!="bind" for x in mounts)):
             raise AppError("compiled_container_provenance_violation",403)
+        _network_check(project,manifest,spec,host,obj)
         seen[name]={"name":name,"id":ident,"running":bool((obj.get("State") or {}).get("Running"))}
     return seen
 
@@ -237,11 +309,10 @@ def _verify_partial(project,manifest,owner):
         if (obj.get("Id")!=ident
             or any(labels.get(k)!=v for k,v in spec["labels"].items())
             or labels.get("com.docker.compose.project")!=project
-            or host.get("NetworkMode")!="none"
             or host.get("Privileged") is not False
-            or host.get("PortBindings")
             or {(x.get("Source"),x.get("Destination")) for x in mounts}!=expected):
             raise AppError("foreign_compiled_recovery_container",403)
+        _network_check(project,manifest,spec,host,obj)
     return ids
 
 
@@ -250,6 +321,18 @@ def _down_owned(project,manifest,owner):
     for item in ids.values():
         # Keep actions constrained to verified full IDs.
         docker("rm","--force",item["id"],timeout=30)
+    if "networks" in manifest:
+        network=project+"_isolated"
+        try: info=json.loads(docker("network","inspect",network))[0]
+        except (ValueError,IndexError,TypeError):
+            raise AppError("compiled_stage_network_cleanup_unverified",503)
+        labels=info.get("Labels") or {}
+        if (info.get("Name")!=network or info.get("Internal") is not True or
+                labels.get("com.docker.compose.project")!=project or
+                labels.get("com.docker.compose.network")!="isolated" or
+                info.get("Containers")):
+            raise AppError("compiled_stage_network_cleanup_unverified",403)
+        docker("network","rm",network,timeout=30)
 
 def _summary(project,entry):
     manifest,services=_current(project,entry)
@@ -260,6 +343,8 @@ def _summary(project,entry):
             "all_running":all(x["running"] for x in services.values()),
             "image_configuration_rollback":True,
             "application_data_rollback":False,
+            "web_url":("http://127.0.0.1:"+str(_published_port(manifest))
+                       if _published_port(manifest) is not None else None),
             "production_mutation_allowed":False}
 
 def listing():
@@ -291,7 +376,15 @@ def operation(action,app_id=None,project=None):
             if docker("ps","--all","--quiet","--no-trunc",
                       "--filter","label=com.docker.compose.project="+project):
                 raise AppError("compiled_stage_project_name_collision",409)
-            raw=compile_stage(project,app_id)
+            # Refuse a pre-existing network of the same generated name.
+            try:
+                existing=docker("network","ls","--quiet","--filter",
+                                "name=^"+project+"_isolated$")
+            except AppError:
+                raise
+            if existing:
+                raise AppError("staging_network_name_collision",409)
+            raw=compile_stage(project,app_id,host_port=_pick_port(project))
             owner=user_registry()["owner"]
             folder=_folder(project)
             folder.mkdir(mode=0o700)
@@ -336,6 +429,20 @@ def operation(action,app_id=None,project=None):
                 for ident in found.splitlines():
                     if ident:
                         docker("rm","--force",ident)
+                if "networks" in manifest:
+                    network=project+"_isolated"
+                    found=docker("network","ls","--quiet","--filter","name=^"+network+"$")
+                    if found:
+                        try: info=json.loads(docker("network","inspect",network))[0]
+                        except (TypeError,ValueError,IndexError):
+                            raise AppError("compiled_stage_network_cleanup_unverified",503)
+                        labels=info.get("Labels") or {}
+                        if (info.get("Name")!=network or info.get("Internal") is not True or
+                                labels.get("com.docker.compose.project")!=project or
+                                labels.get("com.docker.compose.network")!="isolated" or
+                                info.get("Containers")):
+                            raise AppError("compiled_stage_network_cleanup_unverified",403)
+                        docker("network","rm",network)
                 values.pop(project,None)
                 _atomic(STATE,values)
             else:
@@ -393,7 +500,8 @@ def operation(action,app_id=None,project=None):
         # mutable DB contents are NOT snapshotted or restored.
         previous=_file(folder/"previous.json")
         if action=="update":
-            new_raw=compile_stage(project,entry["app_id"])
+            new_raw=compile_stage(project,entry["app_id"],
+                                  host_port=_published_port(manifest))
             updated=_manifest(project,entry["app_id"],entry["owner"],new_raw)
             _validate(project,updated,entry["owner"])
             if updated==manifest:

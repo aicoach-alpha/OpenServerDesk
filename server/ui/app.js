@@ -191,6 +191,7 @@ async function stageRefresh() {
     $("appstore-pilot-refresh").disabled=false;
     $("store-general-refresh").disabled=false;
     storeCoverageRefresh();
+    compiledRefresh();
     storeGeneralRefresh();
     appstorePilotRefresh();
     if (!casaosStoreData) appstoreRefresh();
@@ -1029,6 +1030,8 @@ async function storeCoverageRefresh() {
 
 
 async function storeCompilerPreview(id) {
+  compiledSelectedId=null;
+  $("compiled-install").disabled=true;
   if (!stageToken)return;
   $("appstore-compile-preview").textContent="Checking multi-service staging compatibility…";
   try {
@@ -1037,6 +1040,8 @@ async function storeCompilerPreview(id) {
       {cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}});
     const data=await response.json();
     if (!response.ok)throw Error(data.error||"Staging compiler unavailable");
+    compiledSelectedId=data.all_images_cached===true ? id : null;
+    $("compiled-install").disabled=!stageCanWrite||!compiledSelectedId;
     if (data.migration_allowed!==false
         || data.nextcloud_user_data_inspected!==false
         || data.production_mutation_allowed!==false)
@@ -1053,3 +1058,71 @@ async function storeCompilerPreview(id) {
     $("appstore-compile-preview").textContent="Multi-service plan: "+err.message;
   }
 }
+
+
+// Multi-service App Store project lifecycle. Authorization lives on the API;
+// control state here only improves the operator experience.
+let compiledSelectedId=null;
+async function compiledApi(method,payload){
+  if(!stageToken)throw Error("Authenticate to use the App Store");
+  const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
+  if(payload){opts.headers["Content-Type"]="application/json";opts.body=JSON.stringify(payload);}
+  const response=await fetch("/api/v1/stage/store-compiled",opts);
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error || "Managed App Store unavailable ("+response.status+")");
+  return data;
+}
+async function compiledRefresh(){
+  try{
+    const state=await compiledApi("GET");
+    if(state.production_mutation_allowed!==false || state.migration_allowed!==false)
+      throw Error("Invalid staging ownership declaration");
+    const body=$("compiled-list");body.replaceChildren();
+    for(const app of state.apps){
+      const row=document.createElement("tr");
+      cell(row,app.app_id+" · "+app.project);
+      cell(row,app.services.map(x=>x.name+":"+(x.running?"running":"stopped")).join(", "));
+      cell(row,String(app.revision)+(app.web_url?" · localhost web: "+app.web_url:""));
+      const controls=document.createElement("td");
+      const running=app.services.some(x=>x.running);
+      const actions=running?["stop","restart","update","rollback","uninstall"]:
+                            ["start","update","rollback","uninstall"];
+      for(const action of actions){
+        controls.appendChild(stageButton(action,!stageCanWrite,()=>compiledAct(action,app.project)));
+      }
+      row.appendChild(controls);body.appendChild(row);
+    }
+    for(const project of state.pending_recovery){
+      const row=document.createElement("tr");
+      cell(row,project);cell(row,"Recovery required");cell(row,"—");
+      const controls=document.createElement("td");
+      controls.appendChild(stageButton("Recover",!stageCanWrite,()=>compiledAct("recover",project)));
+      row.appendChild(controls);body.appendChild(row);
+    }
+    $("compiled-status").textContent=state.apps.length+" managed project(s); "+
+      state.pending_recovery.length+" pending recovery. Image/config rollback only; not database contents.";
+    $("compiled-refresh").disabled=false;
+  }catch(err){$("compiled-status").textContent="Managed store: "+err.message;}
+}
+async function compiledAct(action,project){
+  if(["uninstall","rollback","recover"].includes(action) &&
+     !confirm(action+" "+project+"? This only affects the isolated staging project."))return;
+  $("compiled-status").textContent="Running "+action+" on staging "+project+"…";
+  try{
+    await compiledApi("POST",{action,project});
+    await compiledRefresh();
+  }catch(err){$("compiled-status").textContent=action+" failed: "+err.message;}
+}
+$("compiled-install").addEventListener("click",async()=>{
+  const app=compiledSelectedId;
+  if(!app || !stageCanWrite)return;
+  if(!confirm("Install "+app+" as a new staging-owned multi-service project? This does not install into CasaOS."))return;
+  $("compiled-install").disabled=true;
+  $("compiled-status").textContent="Installing "+app+" in staging…";
+  try{
+    await compiledApi("POST",{action:"install",id:app});
+    await compiledRefresh();
+  }catch(err){$("compiled-status").textContent="Install failed: "+err.message;}
+  finally{$("compiled-install").disabled=!stageCanWrite||!compiledSelectedId;}
+});
+$("compiled-refresh").addEventListener("click",compiledRefresh);

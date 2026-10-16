@@ -46,6 +46,26 @@ def dependencies(service):
         raise AppError("invalid_catalog_dependency",409)
     return deps
 
+def catalog_tcp_port(service):
+    """Extract only an app's declared TCP target, never its original host port."""
+    ports=service.get("ports") or []
+    if not isinstance(ports,list):
+        return None
+    for port in ports:
+        raw=None
+        if isinstance(port,int) and type(port) is int:
+            raw=str(port)
+        elif isinstance(port,str):
+            raw=port.strip().rsplit(":",1)[-1]
+        elif isinstance(port,dict) and port.get("protocol","tcp")=="tcp":
+            raw=str(port.get("target",""))
+        if raw is None or not re.fullmatch(r"[0-9]{1,5}(?:/tcp)?",raw):
+            continue
+        n=int(raw.split("/")[0])
+        if 1<=n<=65535:
+            return n
+    return None
+
 def analyze(doc, resolver=resolve_image):
     if not isinstance(doc,dict) or not isinstance(doc.get("services"),dict):
         raise AppError("invalid_catalog_compose",409)
@@ -70,7 +90,8 @@ def analyze(doc, resolver=resolve_image):
             raise AppError("duplicate_catalog_dependencies",409)
         edges[name]=deps
         specs.append({"name":name,"image":image,"immutable_image":resolver(image),
-                      "mount_targets":targets,"depends_on":deps})
+                      "mount_targets":targets,"depends_on":deps,
+                      "web_target":catalog_tcp_port(service)})
     if any(dep not in edges or dep==name for name,ds in edges.items() for dep in ds):
         raise AppError("missing_or_self_catalog_dependency",409)
     visiting=set()
@@ -106,7 +127,7 @@ def preview(app_id):
             "nextcloud_user_data_inspected":False,
             "migration_allowed":False}
 
-def compile_stage(project, app_id):
+def compile_stage(project, app_id, host_port=None):
     if not re.fullmatch(r"osd-compiled-[0-9a-f]{12}\Z",project):
         raise AppError("invalid_compiler_project",400)
     _,doc=_find_catalog_definition(app_id)
@@ -114,6 +135,7 @@ def compile_stage(project, app_id):
     if not plan["all_images_cached"]:
         raise AppError("one_or_more_images_not_cached",409)
     services={}
+    published=False
     for spec in plan["services"]:
         name=spec["name"]
         volumes=[]
@@ -124,7 +146,7 @@ def compile_stage(project, app_id):
             })
         result={
             "image":spec["immutable_image"],"pull_policy":"never",
-            "network_mode":"none","cap_drop":["ALL"],
+            "networks":["isolated"],"cap_drop":["ALL"],
             "security_opt":["no-new-privileges:true"],
             "user":"1000:1000","pids_limit":64,"mem_limit":"256m",
             "restart":"no",
@@ -136,5 +158,11 @@ def compile_stage(project, app_id):
         }
         if spec["depends_on"]:
             result["depends_on"]=sorted(spec["depends_on"])
+        if spec["web_target"] is not None and host_port is not None and not published:
+            if type(host_port) is not int or not 18720<=host_port<=19999:
+                raise AppError("invalid_stage_web_port",400)
+            result["ports"]=[f"127.0.0.1:{host_port}:{spec['web_target']}"]
+            published=True
         services[name]=result
-    return {"name":project,"services":services}
+    return {"name":project,"services":services,
+            "networks":{"isolated":{"internal":True}}}
