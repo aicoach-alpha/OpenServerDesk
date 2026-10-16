@@ -52,6 +52,24 @@
     <p id="cutover-next">Do not stop CasaOS or modify user data.</p>
   </div>
 </section>
+<section class="panel" aria-label="Host resource metrics">
+  <div class="toolbar">
+    <div><h2>Host monitoring</h2>
+      <p id="host-status-message">Loading live NAS health data…</p></div>
+    <button id="host-refresh" type="button">Refresh host metrics</button>
+  </div>
+  <div class="coverage-grid">
+    <div><span>Logical CPU cores</span><strong id="host-cpus">—</strong></div>
+    <div><span>Load (1 / 5 / 15 min)</span><strong id="host-load">—</strong></div>
+    <div><span>Memory in use</span><strong id="host-memory">—</strong></div>
+    <div><span>Host uptime</span><strong id="host-uptime">—</strong></div>
+    <div><span>System disk used</span><strong id="host-root">—</strong></div>
+    <div><span>SSD used</span><strong id="host-ssd">—</strong></div>
+  </div>
+  <div class="progress-content"><p>All figures are read-only live Linux
+    metrics. Only the system disk and SSD are inspected; the external
+    Nextcloud user-data HDD is explicitly excluded.</p></div>
+</section>
 <section class="panel" aria-label="CasaOS Compose compatibility baseline">
   <div class="toolbar">
     <div><h2>CasaOS app compatibility baseline</h2>

@@ -76,6 +76,11 @@ inspection and blocks production replacement until general application
 import and end-to-end compatibility are proved. See
 docs/M1_CASAOS_FUNCTIONAL_PARITY_BASELINE_20261016.md.
 
+v0.6.20 adds live NAS CPU/load/memory/uptime and scoped disk metrics
+to the staging dashboard. The only queried filesystems are system root
+and SSD, NEVER the Nextcloud user-upload HDD. See
+docs/M1_LIVE_HOST_MONITORING_V0620_20261016.md.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout

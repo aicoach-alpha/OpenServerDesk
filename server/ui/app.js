@@ -521,3 +521,26 @@ async function refreshComposeParity() {
   }
 }
 refreshComposeParity();
+
+async function refreshHostStatus() {
+  $("host-refresh").disabled=true;
+  try {
+    const response=await fetch("/api/v1/system/status",{cache:"no-store"});
+    if (!response.ok) throw Error("Host metrics unavailable ("+response.status+")");
+    const d=await response.json();
+    if (d.external_user_data_disks_inspected !== false ||
+        d.source !== "local_linux_readonly")
+      throw Error("Unexpected host status report scope");
+    $("host-cpus").textContent=d.cpu_logical_cores;
+    $("host-load").textContent=d.load_averages.join(" / ");
+    $("host-memory").textContent=d.memory.used_percent+"%";
+    $("host-uptime").textContent=Math.floor(d.uptime_seconds/86400)+" days";
+    $("host-root").textContent=d.filesystems.system.used_percent+"%";
+    $("host-ssd").textContent=d.filesystems.ssd.used_percent+"%";
+    $("host-status-message").textContent="Live OS metrics refreshed; no external user HDD access.";
+  } catch(err) {
+    $("host-status-message").textContent=err.message;
+  } finally { $("host-refresh").disabled=false; }
+}
+$("host-refresh").addEventListener("click",refreshHostStatus);
+refreshHostStatus();

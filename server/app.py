@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, parse_qs
 from stage_storage import listing as stage_files_list, read as stage_file_read, perform as stage_file_action
 from stage_compose import catalog as stage_compose_catalog, list_projects as stage_compose_list, action as stage_compose_action
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
+from host_status import status as host_status, HostStatusError
 from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -182,6 +183,11 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (OSError, ValueError, TypeError):
                 return self.respond(503, {"error": "m1_progress_history_unavailable"})
+        if self.path == "/api/v1/system/status":
+            try:
+                return self.respond(200, host_status())
+            except HostStatusError:
+                return self.respond(503, {"error": "host_status_unavailable"})
         if self.path == "/api/v1/m1/compose-parity":
             try:
                 if COMPOSE_COMPAT.is_symlink() or COMPOSE_COMPAT.stat().st_size > 8192:

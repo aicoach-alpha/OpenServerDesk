@@ -28,6 +28,9 @@ not imply full M1 release. Keep `migration_allowed=false`.
 - M1.5 Existing CasaOS Docker lifecycle/write parity, security and production
   readiness: still PENDING and must NOT touch user apps until approved
 
+- M1.5 Live CPU/load/memory/uptime/system+SSD resource dashboard:
+  v0.6.20 staging PASS, external Nextcloud HDD excluded from metrics
+
 ## M2 Docker core
 Discovery, CLI/Compose stacks, ports and logbook.
 
