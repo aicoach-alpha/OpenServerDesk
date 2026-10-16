@@ -125,8 +125,10 @@
   <h3>Managed multi-service App Store — staging</h3>
   <p>Select an app from the catalogue, review its immutable-image readiness,
      then install and manage the complete isolated Compose project.
-     App containers never reuse CasaOS production paths. Application data
-     rollback and public web hosting are not yet supported.</p>
+     App containers never reuse CasaOS production paths. Stop every service
+     before taking or restoring a stage-only volume checkpoint. Database
+     integrity and production-grade transaction recovery are not verified;
+     web ports remain accessible only from the server loopback.</p>
   <div class="stage-control">
     <button type="button" id="compiled-prepare" disabled>Prepare missing application images</button>
     <button type="button" id="compiled-install" disabled>Install selected multi-service app</button>

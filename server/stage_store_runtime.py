@@ -15,6 +15,9 @@ import subprocess
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_store_compiler import compile_stage, prepare_images, STAGE
+from stage_store_data import (
+    listing as data_listing, checkpoint as data_checkpoint,
+    restore as data_restore, recover as data_recover)
 
 ROOT=Path(STAGE)
 STATE=ROOT/"registry.json"
@@ -259,9 +262,21 @@ def _prepare_volumes(project,raw):
             if path.parent!=folder/name or not path.name.startswith("volume-"):
                 raise AppError("invalid_stage_mount_source",403)
             path.mkdir(mode=0o700,parents=True)
-    # even zero-volume services need stage folder
+            if (path.is_symlink() or not path.is_dir() or
+                path.stat().st_dev != ROOT.stat().st_dev):
+                raise AppError("unsafe_stage_volume_boundary",403)
+            # New isolated bind roots belong to the fixed container user.
+            # Project/backup parents remain root-owned and inaccessible.
+            os.chown(path,1000,1000)
+            path.chmod(0o700)
+    # Service directory may already have been created by its volumes.
+    # Without exist_ok, every non-empty volume declaration fails installation.
     for name in raw["services"]:
-        (folder/name).mkdir(mode=0o700,parents=True)
+        service_dir=folder/name
+        service_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
+        if (service_dir.is_symlink() or not service_dir.is_dir() or
+            service_dir.stat().st_dev!=ROOT.stat().st_dev):
+            raise AppError("unsafe_stage_service_directory",403)
 
 def _current(project,entry):
     folder=_folder(project)
@@ -343,6 +358,9 @@ def _summary(project,entry):
             "all_running":all(x["running"] for x in services.values()),
             "image_configuration_rollback":True,
             "application_data_rollback":False,
+            "manual_stage_volume_backup_restore":True,
+            "data_checkpoints":data_listing(project,manifest),
+            "data_recovery_pending":(_folder(project)/"data-restore-pending.json").exists(),
             "web_url":("http://127.0.0.1:"+str(_published_port(manifest))
                        if _published_port(manifest) is not None else None),
             "production_mutation_allowed":False}
@@ -364,17 +382,18 @@ def listing():
                 "application_data_rollback":False,
                 "migration_allowed":False,"production_mutation_allowed":False}
 
-def operation(action,app_id=None,project=None):
-    if action not in ("prepare","install","start","stop","restart","uninstall","update","rollback","recover"):
+def operation(action,app_id=None,project=None,checkpoint=None):
+    if action not in ("prepare","install","start","stop","restart","uninstall","update","rollback","recover",
+                      "checkpoint","restore-data","recover-data"):
         raise AppError("invalid_compiled_stage_action",400)
     with guarded():
         values=_projects()
         if action=="prepare":
-            if project is not None or not isinstance(app_id,str):
+            if checkpoint is not None or project is not None or not isinstance(app_id,str):
                 raise AppError("invalid_compiled_image_prepare_request",400)
             return prepare_images(app_id)
         if action=="install":
-            if project is not None or len(values)>=MAX_PROJECTS:
+            if checkpoint is not None or project is not None or len(values)>=MAX_PROJECTS:
                 raise AppError("compiled_stage_capacity",409)
             project="osd-compiled-"+secrets.token_hex(6)
             if docker("ps","--all","--quiet","--no-trunc",
@@ -410,7 +429,7 @@ def operation(action,app_id=None,project=None):
                 raise
             return {"operation":"installed","app":_summary(project,values[project])}
         if action=="recover":
-            if app_id is not None or not isinstance(project,str) or not PROJECT.fullmatch(project):
+            if checkpoint is not None or app_id is not None or not isinstance(project,str) or not PROJECT.fullmatch(project):
                 raise AppError("invalid_compiled_recovery_request",400)
             folder=_folder(project)
             journal=_file(folder/"pending.json")
@@ -483,6 +502,22 @@ def operation(action,app_id=None,project=None):
         if journal.exists():
             raise AppError("compiled_stage_recovery_required",409)
         manifest,services=_current(project,entry)
+        data_pending=folder/"data-restore-pending.json"
+        if data_pending.exists() or data_pending.is_symlink():
+            if action!="recover-data":
+                raise AppError("stage_data_recovery_required",409)
+        if action=="checkpoint":
+            if checkpoint is not None:
+                raise AppError("invalid_data_checkpoint_request",400)
+            return data_checkpoint(project,manifest,services)
+        if action=="restore-data":
+            return data_restore(project,manifest,services,checkpoint)
+        if action=="recover-data":
+            if checkpoint is not None:
+                raise AppError("invalid_data_recovery_request",400)
+            return data_recover(project,manifest,services)
+        if checkpoint is not None:
+            raise AppError("unexpected_data_checkpoint_argument",400)
         if action=="uninstall":
             _atomic(journal,{"operation":"uninstall","old":manifest,"entry":entry})
             _down_owned(project,manifest,entry["owner"])

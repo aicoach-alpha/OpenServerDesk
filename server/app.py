@@ -478,8 +478,12 @@ class Handler(BaseHTTPRequestHandler):
                 if set(payload)=={"action","id"} and op in ("prepare","install"):
                     return self.respond(200,compiled_store_operation(op,app_id=payload["id"]))
                 if set(payload)=={"action","project"} and op in (
-                    "start","stop","restart","uninstall","update","rollback","recover"):
+                    "start","stop","restart","uninstall","update","rollback","recover",
+                    "checkpoint","recover-data"):
                     return self.respond(200,compiled_store_operation(op,project=payload["project"]))
+                if set(payload)=={"action","project","checkpoint"} and op=="restore-data":
+                    return self.respond(200,compiled_store_operation(op,project=payload["project"],
+                                                                    checkpoint=payload["checkpoint"]))
                 raise AppError("invalid_compiled_store_request",400)
             if self.path.endswith("/store-general"):
                 if set(payload)=={"action","id"} and payload.get("action") in ("prepare","install"):
