@@ -14,6 +14,7 @@ not imply full M1 release. Keep `migration_allowed=false`.
 - M1.5 All six pinned upstream service processes + UI booted in socketless isolated staging: PASS (limited)
 - M1.5 Two staged real Docker projects: quiescence gate, consistent SQLite/Compose/bind backup and independent restored tree startup PASS (not production-equivalent)
 - M1.5 Packaged staging-only v0.6.8 activation and journaled rollback: LIVE staging PASS; not production cutover
+- M1.5 REAL on-host platform-only SSD backup and staging-only restore verified: 1652 files, 3 SQLite databases; Nextcloud uploads and external HDD content excluded (PASS scoped, not atomic cross-service)
 - M1.5 Full product integration, safe in-place cutover, rollback and final security gate: PENDING
 
 ## M2 Docker core

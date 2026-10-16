@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.12_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.13_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -30,7 +30,7 @@ def decide():
     pkg_version = command("dpkg-deb", "--field", str(PKG), "Version")
     if (pkg_name.returncode or pkg_version.returncode
             or pkg_name.stdout.strip() != "openserverdesk-m1-candidate"
-            or pkg_version.stdout.strip() != "0.6.12"):
+            or pkg_version.stdout.strip() != "0.6.13"):
         raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {
@@ -73,26 +73,75 @@ def decide():
     # Replacing CasaOS is NOT a migration of Docker user bind data or
     # Nextcloud uploads. Only platform configuration and Compose definitions
     # require backup/restore; all user-data mount references stay unchanged.
-    blockers["platform_configuration_recovery"] = (
-        "CasaOS configuration, internal SQLite and selected Compose definitions "
-        "must be verified in an isolated recovery, without moving or reading "
-        "external HDD/Nextcloud user uploads."
-    )
+    config_acceptance = {
+        "platform_backup_verified": False,
+        "staging_restore_verified": False,
+        "external_nextcloud_user_uploads_copied": False,
+        "platform_cluster_snapshot_atomic": False,
+    }
     try:
+        from m1_config_recovery import BACKUP_ROOT, sha, verify, verify_tree
         from m1_storage_safety_gate import inspect as inspect_storage
-        storage = inspect_storage()
-        if not storage["independent_target"]["supplied"]:
-            blockers["platform_config_backup_destination"] = (
-                "Scoped CasaOS/Compose config recovery destination is not yet "
-                "configured and verified. A 2 TB copy of Nextcloud user uploads "
-                "is NOT part of M1 migration."
+        from m1_platform_scope import select as select_platform
+        storage = inspect_storage(Path("/mnt/ssd-turbo"))
+        backup_record = json.loads(Path(
+            "/opt/openserverdesk-dev/runtime-stage/"
+            "M1_CONFIG_ONLY_SSD_BACKUP_LIVE_20261016.json").read_text())
+        restore_record = json.loads(Path(
+            "/opt/openserverdesk-dev/runtime-stage/"
+            "M1_CONFIG_ONLY_SSD_RESTORE_LIVE_20261016.json").read_text())
+        backup_id = backup_record["backup_id"]
+        manifest, actual = verify(backup_id)
+        recovery_tree = BACKUP_ROOT / "restored" / backup_id
+        restored = verify_tree(recovery_tree, manifest)
+        current_source_scope, _current_sources = select_platform()
+        proof_ok = (
+            backup_record.get("manifest_sha256") == sha(
+                BACKUP_ROOT / backup_id / "manifest.json")
+            and backup_record.get("backup_device_is_ssd") is True
+            and backup_record.get("user_data_copied") is False
+            and backup_record.get("production_modified") is False
+            and backup_record.get("sqlite_verified", 0) >= 3
+            and backup_record.get("files_verified", 0) > 0
+            and actual == restored
+            and restore_record.get("backup_id") == backup_id
+            and restore_record.get("user_data_copied") is False
+            and restore_record.get("production_modified") is False
+            and restore_record.get("original_platform_config_overwritten") is False
+            and current_source_scope.get("external_user_data_copied") is False
+            and current_source_scope.get("external_user_data_inspected") is False
+            and storage["independent_target"]["different_device_from_every_source"]
+        )
+        config_acceptance.update({
+            "platform_backup_verified": bool(proof_ok),
+            "staging_restore_verified": bool(proof_ok),
+            "selected_platform_sources": (
+                current_source_scope["selected_config_source_count"]),
+            "verified_config_files": actual["files_verified"] if proof_ok else 0,
+            "verified_sqlite_dbs": actual["sqlite_verified"] if proof_ok else 0,
+        })
+        if not proof_ok:
+            blockers["platform_configuration_recovery"] = (
+                "Platform-only SSD backup and staged restore evidence mismatch."
             )
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, PermissionError):
         storage = {"status": "platform_config_scope_unavailable",
                    "migration_allowed": False}
+        blockers["platform_configuration_recovery"] = (
+            "Cannot independently verify selected CasaOS configuration backup "
+            "and isolated restore; production cutover remains denied."
+        )
+    if not config_acceptance["platform_backup_verified"]:
         blockers["platform_config_backup_destination"] = (
-            "Scoped platform config backup preflight unavailable; fail closed. "
-            "External HDD user data must not be accessed."
+            "No verified independent destination for scoped platform configuration. "
+            "Nextcloud uploads and external HDD are EXCLUDED from migration."
+        )
+    else:
+        blockers["platform_configuration_atomic_consistency"] = (
+            "Three SQLite databases were restored and integrity-checked "
+            "individually, but cross-service application state and transaction "
+            "consistency during live backup are not yet proven. No actual "
+            "production switchover is authorized."
         )
     blockers["signed_release_and_security_acceptance"] = (
         "No validated signed production release or completed independent M1 "
@@ -105,6 +154,7 @@ def decide():
         "package_components": package_components, "existing_casaos_services": status,
         "running_docker_container_count": live_count,
         "storage_safety":storage,
+        "configuration_recovery_acceptance": config_acceptance,
         "unmet_exit_criteria": blockers,
         "evidence": {
             "source": "GitHub aicoach-alpha/OpenServerDesk",

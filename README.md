@@ -38,6 +38,12 @@ mount locations remain unchanged. The previously suggested 1-2 TiB
 extra HDD is NOT required by this CasaOS replacement scope. See
 docs/M1_PLATFORM_SCOPE_CORRECTION_20261016.md.
 
+Scoped CasaOS configuration now has an **actual SSD backup and independently
+verified staging restore**, including three SQLite databases. No Nextcloud
+user-upload contents were opened or copied. See
+docs/M1_REAL_CONFIG_SSD_RECOVERY_20261016.md. The result is NOT an
+atomic cross-service snapshot and does NOT authorize production cutover.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout
