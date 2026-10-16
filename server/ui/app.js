@@ -226,6 +226,7 @@ async function stageRefresh() {
     $("appstore-pilot-refresh").disabled=true;
     $("store-general-refresh").disabled=true;
     $("store-general-install").disabled=true;
+    $("store-general-prepare").disabled=true;
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=true;
@@ -893,6 +894,7 @@ $("appstore-pilot-install").addEventListener("click",async()=>{
 
 
 let generalInstallSelection=null;
+let generalPrepareSelection=null;
 async function storeGeneralApi(method,payload,id) {
   if (!stageToken)throw Error("Staging operator authentication required");
   const suffix=id?"?id="+encodeURIComponent(id):"";
@@ -908,17 +910,21 @@ async function storeGeneralApi(method,payload,id) {
 }
 async function storeGeneralPreflight(id) {
   generalInstallSelection=null;
+  generalPrepareSelection=null;
   $("store-general-install").disabled=true;
+  $("store-general-prepare").disabled=true;
   $("store-general-status").textContent="Evaluating safe staging install requirements…";
   try{
     const plan=await storeGeneralApi("GET",null,id);
     const available=plan.eligible===true && plan.image_cached===true;
     generalInstallSelection=available?id:null;
+    generalPrepareSelection=plan.eligible&&!plan.image_cached?id:null;
     $("store-general-install").disabled=!stageCanWrite||!available;
+    $("store-general-prepare").disabled=!stageCanWrite||!generalPrepareSelection;
     $("store-general-status").textContent=available
       ? "Ready: "+plan.title+" · "+plan.image+" · "+plan.mount_count+
         " isolated volume(s); original host ports and network disabled"
-      : "Staging install not ready: "+(plan.reason||"unsupported application");
+      : "Staging install: "+(plan.reason||"unsupported application");
   }catch(err){
     $("store-general-status").textContent="Staging plan: "+err.message;
   }
@@ -975,3 +981,20 @@ $("store-general-install").addEventListener("click",async()=>{
   }
 });
 $("store-general-refresh").addEventListener("click",storeGeneralRefresh);
+
+
+$("store-general-prepare").addEventListener("click",async()=>{
+  if (!generalPrepareSelection||!stageCanWrite)return;
+  const id=generalPrepareSelection;
+  if (!confirm("Download the original, exact-version CasaOS app image "+
+      "to Docker cache? This will not install or run it."))return;
+  $("store-general-prepare").disabled=true;
+  $("store-general-status").textContent="Preparing exact catalog image…";
+  try{
+    await storeGeneralApi("POST",{action:"prepare",id});
+    await storeGeneralPreflight(id);
+  }catch(err){
+    $("store-general-status").textContent="Image preparation: "+err.message;
+    $("store-general-prepare").disabled=!stageCanWrite;
+  }
+});

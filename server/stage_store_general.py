@@ -234,10 +234,33 @@ def listing():
                 "production_mutation_allowed":False}
 
 def action(op, app_id=None, project=None):
-    if op not in {"install","start","stop","restart","uninstall"}:
+    if op not in {"install","prepare","start","stop","restart","uninstall"}:
         raise AppError("invalid_store_general_operation",400)
     with guarded():
         records=_state()
+        if op=="prepare":
+            if project is not None or not isinstance(app_id,str):
+                raise AppError("invalid_stage_image_prepare",400)
+            plan=preflight(app_id)
+            if not plan.get("eligible"):
+                raise AppError(plan.get("reason","store_not_eligible"),409)
+            if plan["image_cached"]:
+                return {"operation":"already_cached","app_id":app_id,
+                        "production_mutation_allowed":False}
+            # The image is downloaded into Docker's cache only after a
+            # privileged staging operator explicitly requests preparation.
+            # Never execute downloaded code as part of image preparation.
+            space=shutil.disk_usage("/var/lib/docker")
+            if space.free < 8 * 1024**3:
+                raise AppError("insufficient_safe_docker_disk_headroom",409)
+            _command("pull",plan["image"],timeout=240)
+            meta=json.loads(_command("image","inspect",plan["image"],timeout=15))
+            if (not isinstance(meta,list) or len(meta)!=1
+                or int(meta[0].get("Size",0))>1_000_000_000):
+                raise AppError("cached_store_image_exceeds_stage_size_limit",409)
+            return {"operation":"prepared","app_id":app_id,
+                    "image":plan["image"],
+                    "production_mutation_allowed":False}
         if op=="install":
             if project is not None or len(records)>=MAX_INSTALLS:
                 raise AppError("stage_store_install_capacity",409)

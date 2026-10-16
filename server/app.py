@@ -444,8 +444,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise AppError("invalid_operation_request", 400)
             if self.path.endswith("/store-general"):
-                if set(payload)=={"action","id"} and payload.get("action")=="install":
-                    return self.respond(200,store_general_action("install",app_id=payload["id"]))
+                if set(payload)=={"action","id"} and payload.get("action") in ("prepare","install"):
+                    return self.respond(200,store_general_action(payload["action"],app_id=payload["id"]))
                 if (set(payload)=={"action","project"} and
                         payload.get("action") in ("start","stop","restart","uninstall")):
                     return self.respond(200,store_general_action(payload["action"],project=payload["project"]))
