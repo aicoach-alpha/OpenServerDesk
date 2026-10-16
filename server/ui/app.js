@@ -190,6 +190,7 @@ async function stageRefresh() {
     $("appstore-pilot-install").disabled=!stageCanWrite;
     $("appstore-pilot-refresh").disabled=false;
     $("store-general-refresh").disabled=false;
+    storeCoverageRefresh();
     storeGeneralRefresh();
     appstorePilotRefresh();
     if (!casaosStoreData) appstoreRefresh();
@@ -998,3 +999,29 @@ $("store-general-prepare").addEventListener("click",async()=>{
     $("store-general-prepare").disabled=!stageCanWrite;
   }
 });
+
+async function storeCoverageRefresh() {
+  if (!stageToken)return;
+  try {
+    const response=await fetch("/api/v1/stage/store-coverage",{
+      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+    });
+    if (!response.ok)throw Error("coverage endpoint unavailable: "+response.status);
+    const report=await response.json();
+    if (report.production_modified!==false
+        || report.external_nextcloud_user_data_inspected!==false
+        || report.migration_allowed!==false)
+      throw Error("invalid coverage scope");
+    const c=report.staging_static_eligibility;
+    $("store-general-coverage").textContent=
+      "CasaOS definitions "+report.definitions_examined+
+      " · static staging eligible "+c.eligible_for_isolated_staging+
+      " · multi-service "+c.requires_multiservice_engine+
+      " · advanced runtime "+c.advanced_runtime_options+
+      " · unpinned images "+c.image_tag_not_pinned+
+      " · volumes to resolve "+c.unsupported_volume_mapping+
+      ". Not a runtime installation success count.";
+  } catch(error) {
+    $("store-general-coverage").textContent="Coverage unavailable: "+error.message;
+  }
+}

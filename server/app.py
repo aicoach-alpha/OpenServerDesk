@@ -20,6 +20,7 @@ from stage_topology_health import inspect as stage_topology_health
 from casaos_appstore import catalog as casaos_store_catalog, compatibility as casaos_store_compatibility
 from stage_store_installer import list_installs as store_pilot_list, action as store_pilot_action
 from stage_store_general import preflight as store_general_preflight, listing as store_general_listing, action as store_general_action
+from stage_store_coverage import coverage as stage_store_coverage
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
 from host_status import status as host_status, HostStatusError
 from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
@@ -170,6 +171,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200, stage_file_read(values["name"][0]))
             except (ValueError, TypeError):
                 return self.respond(400, {"error":"invalid_stage_file_query"})
+            except AppError as err:
+                return self.respond(err.status, {"error":err.message})
+        if self.path == "/api/v1/stage/store-coverage":
+            try:
+                self._stage_auth()
+                return self.respond(200, stage_store_coverage())
+            except (ValueError, OSError):
+                return self.respond(503, {"error":"store_coverage_unavailable"})
             except AppError as err:
                 return self.respond(err.status, {"error":err.message})
         if self.path == "/api/v1/stage/store-general" or self.path.startswith("/api/v1/stage/store-general?"):
