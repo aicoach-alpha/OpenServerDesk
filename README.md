@@ -44,6 +44,10 @@ user-upload contents were opened or copied. See
 docs/M1_REAL_CONFIG_SSD_RECOVERY_20261016.md. The result is NOT an
 atomic cross-service snapshot and does NOT authorize production cutover.
 
+The packaged OpenServerDesk staging runtime v0.6.15 is now LIVE on
+127.0.0.1:18690 with working M1 progress and Docker inventory endpoints.
+See docs/M1_LIVE_STAGING_V0615_20261016.md. This is not CasaOS production.
+
 Do not run a migration on a live CasaOS installation with this prototype.
 
 ## Source layout
