@@ -1086,7 +1086,8 @@ async function compiledRefresh(){
     for(const app of state.apps){
       const row=document.createElement("tr");
       cell(row,app.app_id+" · "+app.project);
-      cell(row,app.services.map(x=>x.name+":"+(x.running?"running":"stopped")).join(", "));
+      cell(row,app.services.map(x=>x.name+":"+(x.running?"running":
+        (x.status==="exited"?"exited (code "+String(x.exit_code)+")":"stopped"))).join(", "));
       cell(row,String(app.revision)+(app.web_url?" · localhost web: "+app.web_url:""));
       const controls=document.createElement("td");
       const running=app.services.some(x=>x.running);

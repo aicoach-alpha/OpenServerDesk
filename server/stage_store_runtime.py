@@ -12,6 +12,7 @@ import re
 import secrets
 import socket
 import subprocess
+import time
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_store_compiler import compile_stage, prepare_images, STAGE
@@ -81,6 +82,37 @@ def _network_check(project,manifest,cfg,host,obj):
     if portmap!=expected:
         raise AppError("compiled_stage_port_mapping_changed",403)
 
+
+def _tcp_ready(port):
+    if port is None:return True
+    try:
+        with socket.create_connection(("127.0.0.1",port),timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+def _confirm_ready(project,manifest,owner,grace_seconds=11):
+    """Reject containers that only briefly run immediately after docker up.
+
+    Check only exact verified stage-owned container IDs and loopback web port.
+    """
+    if not isinstance(grace_seconds,(int,float)) or not 1<=grace_seconds<=30:
+        raise AppError("invalid_stage_startup_grace",400)
+    deadline=time.monotonic()+grace_seconds
+    port=_published_port(manifest)
+    while True:
+        services=_owned(project,manifest,owner)
+        running=bool(services) and all(x["running"] for x in services.values())
+        reachable=running and _tcp_ready(port)
+        now=time.monotonic()
+        if now>=deadline:
+            if reachable:
+                return {"running":True,"web_reachable":port is None or reachable,
+                        "checked_services":len(services)}
+            raise AppError("compiled_stage_application_failed_readiness",503)
+        if any(x.get("status")=="exited" for x in services.values()):
+            raise AppError("compiled_stage_application_exited_during_start",503)
+        time.sleep(min(1.5,max(0,deadline-now)))
 
 def docker(*args, timeout=95):
     try:
@@ -243,7 +275,11 @@ def _owned(project,manifest,owner):
             or any(x.get("Type")!="bind" for x in mounts)):
             raise AppError("compiled_container_provenance_violation",403)
         _network_check(project,manifest,spec,host,obj)
-        seen[name]={"name":name,"id":ident,"running":bool((obj.get("State") or {}).get("Running"))}
+        state=obj.get("State") or {}
+        seen[name]={"name":name,"id":ident,"running":bool(state.get("Running")),
+                    "status":state.get("Status","unknown"),
+                    "exit_code":state.get("ExitCode") if state.get("Status")=="exited" else None,
+                    "oom_killed":state.get("OOMKilled") is True}
     return seen
 
 def _manifest(project,app_id,owner,raw):
@@ -353,7 +389,9 @@ def _summary(project,entry):
     manifest,services=_current(project,entry)
     return {"project":project,"app_id":entry["app_id"],
             "revision":entry["revision"],
-            "services":[{"name":s["name"],"running":s["running"]}
+            "services":[{"name":s["name"],"running":s["running"],
+                         "status":s["status"],"exit_code":s["exit_code"],
+                         "oom_killed":s["oom_killed"]}
                         for s in sorted(services.values(),key=lambda x:x["name"])],
             "all_running":all(x["running"] for x in services.values()),
             "image_configuration_rollback":True,
@@ -421,7 +459,7 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             _atomic(journal,{"operation":"install","app_id":app_id,"owner":owner})
             try:
                 _up(project)
-                _owned(project,manifest,owner)
+                _confirm_ready(project,manifest,owner)
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
                 journal.unlink()
@@ -534,6 +572,8 @@ def operation(action,app_id=None,project=None,checkpoint=None):
                     docker("stop","--time","2",item["id"])
                 if action=="restart" and item["running"]:
                     docker("restart","--time","2",item["id"])
+            if action in ("start","restart"):
+                _confirm_ready(project,manifest,entry["owner"])
             return {"operation":action,"app":_summary(project,entry)}
         # Configuration/image rollback. Stage volumes are retained in-place;
         # mutable DB contents are NOT snapshotted or restored.
@@ -559,7 +599,7 @@ def operation(action,app_id=None,project=None,checkpoint=None):
         _atomic(_compose_path(project),target)
         try:
             _up(project)
-            _owned(project,target,entry["owner"])
+            _confirm_ready(project,target,entry["owner"])
             _atomic(previous,manifest)
             entry["revision"]+=1
             _atomic(STATE,values)
