@@ -175,6 +175,24 @@ async function unifiedStageInventoryRefresh() {
   const expected=["docker","compose","store_pilot","store_general"];
   if (!expected.every(key=>Number.isInteger(counts[key]) && counts[key]>=0))
     throw Error("Invalid unified inventory counts");
+  if (!Array.isArray(result.applications) ||
+      result.applications.length!==result.total ||
+      result.total!==expected.reduce((sum,key)=>sum+counts[key],0))
+    throw Error("Invalid unified inventory entries");
+  const tbody=$("stage-unified-apps-list");
+  const rows=[];
+  for (const app of result.applications) {
+    if (!expected.includes(app.source) || typeof app.name!=="string" ||
+        typeof app.running!=="boolean" ||
+        (app.project!==null && typeof app.project!=="string"))
+      throw Error("Invalid staged application record");
+    const tr=document.createElement("tr");
+    cell(tr,app.source);cell(tr,app.name);cell(tr,app.project||"—");
+    const state=cell(tr,app.running?"running":"stopped");
+    state.className=app.running?"running":"inactive";
+    rows.push(tr);
+  }
+  tbody.replaceChildren(...rows);
   $("stage-unified-summary").textContent="Managed staging inventory: "+
     result.total+" total · "+counts.docker+" Docker · "+counts.compose+
     " Compose · "+counts.store_pilot+" Store pilot · "+
