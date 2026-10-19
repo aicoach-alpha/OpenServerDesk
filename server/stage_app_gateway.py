@@ -13,7 +13,9 @@ import time
 from http.cookies import SimpleCookie
 from urllib.parse import unquote, urlsplit
 from stage_apps import AppError
-from stage_store_runtime import listing, PROJECT
+from stage_store_runtime import (
+    listing, PROJECT, _projects, _current, _stage_private_endpoint)
+from stage_qui_pilot import APP as QUI_APP
 
 PREFIX="/stage-app/"
 COOKIE="osd_my_speed_preview"
@@ -37,9 +39,16 @@ def _matching(project):
         raise AppError("invalid_stage_web_project",400)
     state=listing()
     app=next((a for a in state["apps"] if a["project"]==project),None)
-    if (app is None or app["app_id"]!="default:MySpeed"
-            or app.get("outbound_network_pilot") is not True
-            or not app.get("all_running")):
+    if app is None or not app.get("all_running"):
+        raise AppError("stage_web_app_unavailable",404)
+    if app["app_id"]==QUI_APP and app.get("outbound_network_pilot") is False:
+        values=_projects()
+        entry=values.get(project)
+        if entry is None or entry.get("app_id")!=QUI_APP:
+            raise AppError("stage_web_qui_project_invalid",403)
+        manifest,services=_current(project,entry)
+        return _stage_private_endpoint(project,manifest,entry["owner"],services)
+    if app["app_id"]!="default:MySpeed" or app.get("outbound_network_pilot") is not True:
         raise AppError("stage_web_app_unavailable",404)
     url=app.get("web_url")
     if not isinstance(url,str):
@@ -58,7 +67,7 @@ def _session_cleanup(now):
 
 def issue(project):
     """Only caller after successful write-authorized stage API authentication."""
-    _matching(project)
+    target=_matching(project)
     now=time.monotonic()
     with _lock:
         _session_cleanup(now)
@@ -70,7 +79,8 @@ def issue(project):
     cookie=(COOKIE+"="+key+"; Path="+path+
             "; Max-Age="+str(TTL)+"; HttpOnly; SameSite=Strict")
     return {"entry":path,"expires_in_seconds":TTL,
-            "scope":"authenticated_myspeed_stage_only",
+            "scope":("authenticated_qui_stage_only" if isinstance(target,tuple)
+                     else "authenticated_myspeed_stage_only"),
             "production_mutation_allowed":False},cookie
 
 
@@ -144,7 +154,8 @@ def proxy(method,uri,cookies,headers,body=b""):
     _cookie(project,cookies)
     if len(body)>MAX_BODY:
         raise AppError("stage_web_request_too_large",413)
-    port=_matching(project)
+    target=_matching(project)
+    hostname,port=target if isinstance(target,tuple) else ("127.0.0.1",target)
     if method not in ("GET","HEAD"):
         origin=headers.get("Origin")
         if origin is None:
@@ -153,11 +164,11 @@ def proxy(method,uri,cookies,headers,body=b""):
             raise AppError("stage_web_origin_rejected",403)
     if route.startswith("/registerSW.js") or route.startswith("/sw.js"):
         return 200,"application/javascript",b"/* staging service workers disabled */",{}
-    connection=http.client.HTTPConnection("127.0.0.1",port,timeout=9)
+    connection=http.client.HTTPConnection(hostname,port,timeout=9)
     try:
         forwarded=_safe_headers(headers)
         forwarded["Accept-Encoding"]="identity"
-        forwarded["Host"]="127.0.0.1:"+str(port)
+        forwarded["Host"]="localhost:"+str(port)
         connection.request(method,route,body=body if method not in ("GET","HEAD") else None,
                            headers=forwarded)
         response=connection.getresponse()

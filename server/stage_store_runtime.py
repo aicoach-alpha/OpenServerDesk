@@ -6,6 +6,7 @@ reverted. Rollback DOES NOT restore mutable application databases.
 """
 from __future__ import annotations
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -16,6 +17,7 @@ import time
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_store_compiler import compile_stage, prepare_images, STAGE
+from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow
 from stage_store_data import (
     listing as data_listing, checkpoint as data_checkpoint,
     restore as data_restore, recover as data_recover,
@@ -191,6 +193,45 @@ def _tcp_ready(port):
     except OSError:
         return False
 
+def _stage_private_endpoint(project,manifest,owner,services=None):
+    """Resolve only the Docker-verified internal-stage app service/IP.
+
+    Prevent arbitrary URLs or project IDs from influencing the target.
+    """
+    if manifest.get("networks")!={"isolated":{"internal":True}}:
+        raise AppError("not_an_internal_stage_network",403)
+    network=project+"_isolated"
+    wanted=[]
+    for name,spec in manifest["services"].items():
+        for port in spec.get("ports",[]):
+            match=PORT.fullmatch(port)
+            if match:wanted.append((name,int(match.group(2))))
+    if len(wanted)!=1:
+        raise AppError("internal_stage_web_port_unavailable",409)
+    name,port=wanted[0]
+    items=services if services is not None else _owned(project,manifest,owner)
+    if name not in items:
+        raise AppError("stage_internal_target_missing",503)
+    obj=json.loads(docker("inspect","--type","container",items[name]["id"]))[0]
+    nets=(obj.get("NetworkSettings") or {}).get("Networks") or {}
+    if set(nets)!={network}:
+        raise AppError("stage_internal_network_identity_changed",403)
+    address=nets[network].get("IPAddress")
+    try: ip=ipaddress.ip_address(address)
+    except ValueError:
+        raise AppError("stage_internal_ip_invalid",503)
+    if ip.version!=4 or not ip.is_private or ip.is_loopback or ip.is_link_local:
+        raise AppError("stage_internal_ip_not_private",403)
+    return str(ip),port
+
+def _private_ready(project,manifest,owner,services):
+    try:
+        ip,port=_stage_private_endpoint(project,manifest,owner,services)
+        with socket.create_connection((ip,port),timeout=0.5):
+            return True
+    except (AppError,OSError):
+        return False
+
 def _confirm_ready(project,manifest,owner,grace_seconds=11):
     """Reject containers that only briefly run immediately after docker up.
 
@@ -212,7 +253,11 @@ def _confirm_ready(project,manifest,owner,grace_seconds=11):
                         for s in services.values())
         healthy_ready=all(services[name].get("health")=="healthy"
                           for name in required_healthy)
-        reachable=running and health_good and healthy_ready and _tcp_ready(port)
+        if manifest.get("networks")=={"isolated":{"internal":True}} and port is not None:
+            web_ready=_private_ready(project,manifest,owner,services)
+        else:
+            web_ready=_tcp_ready(port)
+        reachable=running and health_good and healthy_ready and web_ready
         now=time.monotonic()
         if now>=deadline:
             if reachable:
@@ -315,12 +360,14 @@ def _validate(project,manifest,owner):
         network_ok=(cfg.get("network_mode")=="none" and "networks" not in manifest and not cfg.get("networks"))
         network_ok=network_ok or (network is not None
             and cfg.get("networks")==[network] and "network_mode" not in cfg)
+        pilot_env=bool(cfg.get("environment") or cfg.get("healthcheck"))
         if (not network_ok or cfg.get("user")!="1000:1000"
             or cfg.get("pull_policy")!="never" or cfg.get("cap_drop")!=["ALL"]
             or cfg.get("security_opt")!=["no-new-privileges:true"]
             or cfg.get("restart")!="no" or cfg.get("labels")!=expected
             or cfg.get("privileged")
-            or cfg.get("environment") or cfg.get("env_file")
+            or (pilot_env and not qui_allow(project,services))
+            or cfg.get("env_file")
             or cfg.get("devices") or cfg.get("build")):
             raise AppError("unsafe_compiled_service_settings",403)
         ports=cfg.get("ports",[])
@@ -386,6 +433,16 @@ def _owned(project,manifest,owner):
             or source_pairs!=expected_pairs
             or any(x.get("Type")!="bind" for x in mounts)):
             raise AppError("compiled_container_provenance_violation",403)
+        # Prove the running containers actually use the exact stage-only
+        # credentials/healthcheck from the root-protected pilot record.
+        if spec.get("environment"):
+            observed=set(cfg.get("Env") or [])
+            if any(k+"="+v not in observed for k,v in spec["environment"].items()):
+                raise AppError("compiled_container_environment_drift",403)
+        if spec.get("healthcheck"):
+            observed_health=(cfg.get("Healthcheck") or {}).get("Test")
+            if observed_health!=spec["healthcheck"]["test"]:
+                raise AppError("compiled_container_healthcheck_drift",403)
         _network_check(project,manifest,spec,host,obj)
         state=obj.get("State") or {}
         health=(state.get("Health") or {}).get("Status")
@@ -525,7 +582,11 @@ def _summary(project,entry):
             "data_recovery_pending":(_folder(project)/"data-restore-pending.json").exists(),
             "online_data_recovery_pending":_online_file(project).exists(),
             "web_url":("http://127.0.0.1:"+str(_published_port(manifest))
-                       if _published_port(manifest) is not None else None),
+                       if _published_port(manifest) is not None and
+                          manifest.get("networks")!={"isolated":{"internal":True}}
+                       else None),
+            "stage_browser_app":(entry["app_id"] in (QUI_APP,"default:MySpeed")
+                                 and _published_port(manifest) is not None),
             "production_mutation_allowed":False}
 
 def _online_file(project):
@@ -754,7 +815,7 @@ def listing():
                 "migration_allowed":False,"production_mutation_allowed":False}
 
 def operation(action,app_id=None,project=None,checkpoint=None):
-    if action not in ("prepare","install","start","stop","restart","uninstall","update","rollback","recover",
+    if action not in ("prepare","install","finish-install","start","stop","restart","uninstall","update","rollback","recover",
                       "checkpoint","restore-data","recover-data",
                       "backup-online","restore-online","recover-online","delete-checkpoint"):
         raise AppError("invalid_compiled_stage_action",400)
@@ -777,10 +838,12 @@ def operation(action,app_id=None,project=None,checkpoint=None):
                                 "name=^"+project+"_"+network_name+"$")
                 if existing:
                     raise AppError("staging_network_name_collision",409)
-            raw=compile_stage(project,app_id,host_port=_pick_port(project))
-            owner=user_registry()["owner"]
             folder=_folder(project)
             folder.mkdir(mode=0o700)
+            if app_id==QUI_APP:
+                qui_secret_create(project)
+            raw=compile_stage(project,app_id,host_port=_pick_port(project))
+            owner=user_registry()["owner"]
             _prepare_volumes(project,raw)
             manifest=_manifest(project,app_id,owner,raw)
             _validate(project,manifest,owner)
@@ -791,13 +854,41 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             _atomic(journal,{"operation":"install","app_id":app_id,"owner":owner})
             try:
                 _up(project)
-                _confirm_ready(project,manifest,owner)
+                _confirm_ready(project,manifest,owner,
+                               grace_seconds=25 if app_id==QUI_APP else 11)
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
                 journal.unlink()
             except Exception:
                 raise
             return {"operation":"installed","app":_summary(project,values[project])}
+        if action=="finish-install":
+            if (checkpoint is not None or app_id is not None
+                    or not isinstance(project,str) or not PROJECT.fullmatch(project)
+                    or project in values):
+                raise AppError("invalid_stage_install_finalization",400)
+            folder=_folder(project)
+            journal=_file(folder/"pending.json")
+            state=_read(journal,None)
+            if not isinstance(state,dict) or state.get("operation")!="install":
+                raise AppError("no_pending_stage_install",404)
+            owner=state.get("owner")
+            if not isinstance(owner,str) or not OWNER.fullmatch(owner):
+                raise AppError("invalid_stage_install_owner",403)
+            manifest=_read(_compose_path(project),None)
+            if not isinstance(manifest,dict):
+                raise AppError("missing_stage_install_manifest",503)
+            _validate(project,manifest,owner)
+            _confirm_ready(project,manifest,owner,grace_seconds=3)
+            if len(values)>=MAX_PROJECTS:
+                raise AppError("compiled_stage_capacity",409)
+            app_id=state.get("app_id")
+            if app_id!=QUI_APP:
+                raise AppError("install_finalization_not_approved_for_app",403)
+            values[project]={"app_id":app_id,"owner":owner,"revision":1}
+            _atomic(STATE,values)
+            journal.unlink()
+            return {"operation":"installed_after_readiness","app":_summary(project,values[project])}
         if action=="recover":
             if checkpoint is not None or app_id is not None or not isinstance(project,str) or not PROJECT.fullmatch(project):
                 raise AppError("invalid_compiled_recovery_request",400)

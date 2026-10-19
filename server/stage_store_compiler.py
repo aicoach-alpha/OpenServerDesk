@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 from stage_store_general import _find_catalog_definition, _mount_targets, AppError
+from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environments as qui_environments, HEALTH as QUI_HEALTH
 
 MAX_SERVICES=6
 MAX_TOTAL_MOUNTS=18
@@ -201,6 +202,10 @@ def compile_stage(project, app_id, host_port=None):
     if not plan["all_images_cached"]:
         raise AppError("one_or_more_images_not_cached",409)
     outbound=_outbound_pilot(app_id,doc,plan)
+    qui=qui_supported(app_id,doc)
+    if app_id==QUI_APP and not qui:
+        raise AppError("qui_catalog_pilot_revision_unsupported",409)
+    qui_env=qui_environments(project) if qui else {}
     network="egress" if outbound else "isolated"
     services={}
     published=False
@@ -224,6 +229,10 @@ def compile_stage(project, app_id, host_port=None):
                       "osd.m1.compiled.service":name,
                       "osd.m1.compiled.app":app_id},
         }
+        if qui:
+            result["environment"]=qui_env[name]
+            if name=="postgres":
+                result["healthcheck"]=QUI_HEALTH
         if spec["depends_on"]:
             conditions=spec["dependency_conditions"]
             if any(c=="service_healthy" for c in conditions.values()):

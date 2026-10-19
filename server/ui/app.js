@@ -1108,7 +1108,8 @@ async function compiledRefresh(){
         controls.appendChild(stageButton(action,!stageCanWrite,
           ()=>compiledAct(action==="Backup + restart"?"backup-online":action,app.project)));
       }
-      if(app.app_id==="default:MySpeed" && app.outbound_network_pilot===true
+      if((app.app_id==="default:MySpeed" || app.app_id==="casaos.app:org.icewhale.qui")
+         && app.stage_browser_app===true
          && app.all_running && !app.data_recovery_pending){
         controls.appendChild(stageButton("Open app",!stageCanWrite,
           ()=>compiledOpenWeb(app.project)));
@@ -1153,7 +1154,7 @@ async function compiledOpenWeb(project){
     const result=await response.json();
     if(!response.ok)throw Error(result.error||"Staging app access failed");
     if(result.production_mutation_allowed!==false ||
-       result.scope!=="authenticated_myspeed_stage_only" ||
+       !["authenticated_myspeed_stage_only","authenticated_qui_stage_only"].includes(result.scope) ||
        typeof result.entry!=="string" || !result.entry.startsWith("/stage-app/"+project+"/"))
        throw Error("Unexpected staging app gateway scope");
     window.location.assign(result.entry);
