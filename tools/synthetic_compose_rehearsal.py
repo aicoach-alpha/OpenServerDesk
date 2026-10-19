@@ -65,16 +65,50 @@ def verify_fixture(config: dict):
 
 
 
+
+def translate_stage_resources(doc):
+    """Replace source resource declarations with isolated, value-free fixtures.
+
+    Never copy source env values, port numbers, mount paths, or images.
+    Unsupported source features remain blocked by the strict planner.
+    """
+    safe = {"image", "depends_on", "ports", "environment", "volumes"}
+    result = {"services": {}}
+    counts = {"port_declarations": 0, "environment_declarations": 0,
+              "volume_declarations": 0}
+    services = doc.get("services")
+    if not isinstance(services, dict) or not services:
+        raise ValueError("invalid source services")
+    for name, cfg in services.items():
+        if not isinstance(cfg, dict) or set(cfg) - safe:
+            raise ValueError("source features require explicit stage translation")
+        out = {"image": "busybox:latest"}
+        if "depends_on" in cfg:
+            out["depends_on"] = cfg["depends_on"]
+        for field, counter in (("ports", "port_declarations"),
+                               ("volumes", "volume_declarations")):
+            values = cfg.get(field, [])
+            if not isinstance(values, list):
+                raise ValueError("invalid resource declaration")
+            counts[counter] += len(values)
+        env = cfg.get("environment", {})
+        if not isinstance(env, (dict, list)):
+            raise ValueError("invalid environment declaration")
+        counts["environment_declarations"] += len(env)
+        result["services"][name] = out
+    isolated_deployment_plan(result)
+    return result, counts
+
 def execute_isolated(doc):
     """Run only generated BusyBox fixtures in a unique staging Compose project.
 
     This never replays source images, binds, ports, secrets, or env. A unique
     project name prevents touching any existing Compose application.
     """
-    config, _ = synthetic(doc)
-    # Reuse the strict dependency planner for eligible stage-safe projects;
-    # source Compose resources are still discarded by synthetic().
-    plan = isolated_deployment_plan(doc)
+    translated, resource_counts = translate_stage_resources(doc)
+    config, _ = synthetic(translated)
+    # Source resource values are discarded; only sanitized dependencies remain.
+    plan = isolated_deployment_plan(translated)
     project = "osd-m1-fixture-" + secrets.token_hex(6)
     with tempfile.TemporaryDirectory(prefix="osd-exec-", dir=OUTPUT_ROOT) as tmp:
         path = Path(tmp) / "compose.json"
@@ -94,6 +128,7 @@ def execute_isolated(doc):
             return {"scope": "SYNTHETIC_COMPOSE_EXECUTION_ONLY",
                     "synthetic_services_running": len(config["services"]),
                     "dependency_order": plan["service_order"],
+                    "translated_resource_counts": resource_counts,
                     "real_app_imports_verified": 0,
                     "production_modified": False}
         finally:
@@ -146,7 +181,10 @@ if __name__=="__main__":
     if args.run_isolated_demo:
         fixture = {"services": {"database": {"image": "discarded"},
                    "frontend": {"image": "discarded",
-                                "depends_on": ["database"]}}}
+                                "depends_on": ["database"],
+                                "ports": ["9999:80"],
+                                "environment": {"SECRET": "discarded"},
+                                "volumes": ["/private:/data"]}}}
         print(json.dumps(execute_isolated(fixture), sort_keys=True))
     else:
         print(json.dumps(check_casaos(),sort_keys=True))
