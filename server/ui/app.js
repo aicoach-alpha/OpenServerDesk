@@ -846,12 +846,23 @@ async function appstorePilotRequest(method,payload) {
   if (!response.ok)throw Error(output.error||"Stage App Store pilot unavailable");
   return output;
 }
+function stageStoreInventorySummary(pilotCount, generalCount) {
+  const node=$("stage-store-inventory-summary");
+  if (!node) return;
+  node.textContent="App Store staging: "+pilotCount+
+    " approved pilot(s) · "+generalCount+
+    " catalog-derived install(s). Managed below with isolated lifecycle controls.";
+}
+let stageStorePilotCount=0;
+let stageStoreGeneralCount=0;
 async function appstorePilotRefresh() {
   try {
     const result=await appstorePilotRequest("GET");
     if (result.scope!=="approved_isolated_casaos_store_pilot"
         || result.production_mutation_allowed!==false)
       throw Error("Unexpected App Store installation scope");
+    stageStorePilotCount=result.apps.length;
+    stageStoreInventorySummary(stageStorePilotCount,stageStoreGeneralCount);
     const holder=$("appstore-pilot-apps");
     holder.replaceChildren();
     $("appstore-pilot-install").disabled=!stageCanWrite||result.apps.length>0;
@@ -943,6 +954,8 @@ async function storeGeneralRefresh() {
     if (result.scope!=="catalog_derived_isolated_singlestage"
         || result.production_mutation_allowed!==false)
       throw Error("Unexpected staging lifecycle scope");
+    stageStoreGeneralCount=result.apps.length;
+    stageStoreInventorySummary(stageStorePilotCount,stageStoreGeneralCount);
     const holder=$("store-general-list");
     holder.replaceChildren();
     for (const entry of result.apps) {
