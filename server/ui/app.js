@@ -188,12 +188,15 @@ async function unifiedStageInventoryRefresh() {
   for (const app of result.applications) {
     if (!expected.includes(app.source) || typeof app.name!=="string" ||
         typeof app.running!=="boolean" ||
+        app.lifecycle!==(app.running?"running":"stopped") ||
+        app.readiness!=="not_verified" ||
         (app.project!==null && typeof app.project!=="string"))
       throw Error("Invalid staged application record");
     const tr=document.createElement("tr");
     cell(tr,app.source);cell(tr,app.name);cell(tr,app.project||"—");
     const state=cell(tr,app.running?"running":"stopped");
     state.className=app.running?"running":"inactive";
+    cell(tr,"Not verified");
     const destinations={
       docker:"stage-apps-list",
       compose:"stage-compose-list",
@@ -213,10 +216,16 @@ async function unifiedStageInventoryRefresh() {
     rows.push(tr);
   }
   tbody.replaceChildren(...rows);
+  const lifecycle=result.lifecycle_counts;
+  if (!lifecycle || !Number.isInteger(lifecycle.running) ||
+      !Number.isInteger(lifecycle.stopped) ||
+      lifecycle.running+lifecycle.stopped!==result.total)
+    throw Error("Invalid lifecycle counts");
   $("stage-unified-summary").textContent="Managed staging inventory: "+
     result.total+" total · "+counts.docker+" Docker · "+counts.compose+
     " Compose · "+counts.store_pilot+" Store pilot · "+
-    counts.store_general+" Store catalog";
+    counts.store_general+" Store catalog · "+
+    lifecycle.running+" running · "+lifecycle.stopped+" stopped";
 }
 async function stageRefresh() {
   try {

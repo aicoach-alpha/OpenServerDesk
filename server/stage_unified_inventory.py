@@ -30,9 +30,15 @@ def inventory():
                 "name": app_name,
                 "project": entry.get("project") if isinstance(entry.get("project"), str) else None,
                 "running": bool(entry.get("running", False)),
+                "lifecycle": "running" if entry.get("running", False) else "stopped",
+                "readiness": "not_verified",
             })
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,
             "total": sum(counts.values()),
             "applications": applications,
+            "lifecycle_counts": {
+                "running": sum(1 for app in applications if app["running"]),
+                "stopped": sum(1 for app in applications if not app["running"]),
+            },
             "production_mutation_allowed": False}
