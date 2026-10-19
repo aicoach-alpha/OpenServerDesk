@@ -18,6 +18,7 @@ from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_store_compiler import compile_stage, prepare_images, STAGE
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow
+from stage_postgres_integrity import is_qui_pg
 from stage_store_data import (
     listing as data_listing, checkpoint as data_checkpoint,
     restore as data_restore, recover as data_recover,
@@ -659,7 +660,8 @@ def _online_data(project,manifest,entry,services,action,checkpoint):
         if action=="backup-online":
             saved=data_checkpoint(project,manifest,current)
             result={"operation":"backed_up_online","checkpoint":saved["checkpoint"],
-                    "sqlite_files_verified":saved["sqlite_files_verified"]}
+                    "sqlite_files_verified":saved["sqlite_files_verified"],
+                    "postgresql_cold_verified":saved.get("postgresql_cold_verified",False)}
         else:
             # Preserve exact pre-restore bytes BEFORE mutating anything.
             # The journal pins this undo checkpoint durably.
@@ -667,7 +669,8 @@ def _online_data(project,manifest,entry,services,action,checkpoint):
             _atomic(path,record)
             checked=_data_apply(project,manifest,checkpoint)
             result={"operation":"restored_online","checkpoint":checkpoint,
-                    "undo":record["undo"],"sqlite_files_verified":checked}
+                    "undo":record["undo"],"sqlite_files_verified":checked,
+                    "postgresql_cold_verified":is_qui_pg(manifest)}
         _resume_online(project,manifest,entry["owner"],set(running))
         path.unlink()
         result.update({"production_mutation_allowed":False,"app":_summary(project,entry)})

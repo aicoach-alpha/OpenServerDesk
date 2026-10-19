@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 from stage_apps import AppError
 from stage_store_compiler import STAGE
+from stage_postgres_integrity import is_qui_pg, verify as verify_pg_cold
 
 ROOT=Path(STAGE)
 CP=re.compile(r"data-[0-9a-f]{12}\Z")
@@ -223,10 +224,13 @@ def _save(project,manifest):
             _safe_copy(source,target)
         digests={rel:_digest_tree(tmp/"volumes"/rel) for rel,_ in sources}
         sqlite_count=sum(_sqlite_check(tmp/"volumes"/rel) for rel,_ in sources)
-        _write(tmp/"manifest.json",{"version":3,"id":name,
-            "volumes":[rel for rel,_ in sources],
+        postgres_cold=verify_pg_cold(
+            project,manifest,tmp/"volumes"/"postgres"/"volume-0",ROOT)
+        _write(tmp/"manifest.json",{"version":4 if postgres_cold else 3,
+            "id":name,"volumes":[rel for rel,_ in sources],
             "integrity":digests,
             "sqlite_files_verified":sqlite_count,
+            "postgresql_cold_verified":postgres_cold,
             "count":limit[0],"bytes":limit[1]})
         os.replace(tmp,root/name)
         _sync(root)
@@ -244,6 +248,7 @@ def checkpoint(project,manifest,services):
     return {"operation":"checkpoint","checkpoint":name,
             "sqlite_quick_check_passed":True,
             "sqlite_files_verified":evidence["sqlite_files_verified"],
+            "postgresql_cold_verified":evidence.get("postgresql_cold_verified") is True,
             "production_mutation_allowed":False,"database_integrity_verified":False}
 
 def _validate_snapshot(project,manifest,name):
@@ -259,7 +264,7 @@ def _validate_snapshot(project,manifest,name):
     except (OSError,ValueError):
         raise AppError("invalid_stage_checkpoint_manifest",403)
     paths=_volumes(project,manifest)
-    if (doc.get("version") not in (1,2,3) or doc.get("id")!=name or
+    if (doc.get("version") not in (1,2,3,4) or doc.get("id")!=name or
             doc.get("volumes")!=[rel for rel,_ in paths]):
         raise AppError("stage_checkpoint_volume_mismatch",403)
     result=[]
@@ -279,14 +284,25 @@ def _validate_snapshot(project,manifest,name):
         observed=sum(_sqlite_check(src) for src,_ in result)
         if type(doc.get("sqlite_files_verified")) is not int or observed!=doc["sqlite_files_verified"]:
             raise AppError("stage_sqlite_checkpoint_mismatch",409)
+    if is_qui_pg(manifest):
+        if doc.get("version")!=4 or doc.get("postgresql_cold_verified") is not True:
+            raise AppError("stage_postgres_checkpoint_evidence_missing",409)
+        verify_pg_cold(project,manifest,
+                       root/"volumes"/"postgres"/"volume-0",ROOT)
     return result
 
 def _apply(project,manifest,name):
     sources=_validate_snapshot(project,manifest,name)
     # Preflight BOTH current contents and archived contents before modifying.
-    quota=[0,0]
+    # A restore has TWO separate datasets of which only one must fit
+    # the per-checkpoint quota: source archive and current destination.
+    # Sharing a counter here double-charged a valid 67MB PostgreSQL archive
+    # plus its existing 67MB live data against the 128MB snapshot limit.
+    source_quota=[0,0]
+    destination_quota=[0,0]
     for src,dst in sources:
-        _scan(src,quota);_scan(dst,quota)
+        _scan(src,source_quota)
+        _scan(dst,destination_quota)
     for src,dst in sources:
         # Keep the original bind-root inode/directory in place at all times.
         # This lets the Docker provenance validator work after worker crash.
@@ -312,6 +328,7 @@ def _apply(project,manifest,name):
         if _digest_tree(src)!=_digest_tree(dst):
             raise AppError("stage_restore_content_mismatch",503)
         checked+=_sqlite_check(dst)
+    verify_pg_cold(project,manifest,_dir(project)/"postgres"/"volume-0",ROOT)
     return checked
 
 def restore(project,manifest,services,name):
@@ -328,6 +345,7 @@ def restore(project,manifest,services,name):
     pending.unlink();_sync(_dir(project))
     return {"operation":"restored","checkpoint":name,"undo":undo,
             "sqlite_quick_check_passed":True,"sqlite_files_verified":checked,
+            "postgresql_cold_verified":is_qui_pg(manifest),
             "production_mutation_allowed":False,"database_integrity_verified":False}
 
 def recover(project,manifest,services):
