@@ -32,9 +32,36 @@ def isolated(path):
             raise ValueError("world-writable fixture ancestry forbidden")
     return resolved
 
+def status(target):
+    """Read-only, fail-closed state for interrupted fixture activation."""
+    target = isolated(target)
+    pending = target / ".osd-undo"
+    preparing = target / ".osd-undo-preparing"
+    if preparing.exists() or preparing.is_symlink():
+        state = "INCOMPLETE_PREPARATION"
+    elif pending.is_symlink():
+        state = "INVALID_JOURNAL"
+    elif pending.is_dir():
+        state = "ROLLBACK_AVAILABLE"
+    elif pending.exists():
+        state = "INVALID_JOURNAL"
+    else:
+        state = "IDLE"
+    return {"scope": "DISPOSABLE_TEMP_FIXTURE_ONLY", "state": state,
+            "activation_allowed": state == "IDLE",
+            "rollback_required": state == "ROLLBACK_AVAILABLE",
+            "migration_allowed": False, "production_modified": False}
+
 def execute(action, target, bundle=None):
     target = isolated(target)
+    if action == "status":
+        if bundle is not None:
+            raise ValueError("status does not accept bundle")
+        return status(target)
+    current = status(target)
     if action == "activate":
+        if not current["activation_allowed"]:
+            raise RuntimeError("fixture requires recovery or inspection before activation")
         if bundle is None:
             raise ValueError("bundle required")
         bundle = isolated(bundle)
@@ -53,7 +80,7 @@ def execute(action, target, bundle=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("activate", "rollback"))
+    parser.add_argument("action", choices=("activate", "rollback", "status"))
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--bundle", type=Path)
     args = parser.parse_args()
