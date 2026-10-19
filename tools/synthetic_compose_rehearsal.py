@@ -134,4 +134,15 @@ def check_casaos():
     }
 
 if __name__=="__main__":
-    print(json.dumps(check_casaos(),sort_keys=True))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-isolated-demo", action="store_true",
+                        help="run and clean up two synthetic staging services only")
+    args = parser.parse_args()
+    if args.run_isolated_demo:
+        fixture = {"services": {"database": {"image": "discarded"},
+                   "frontend": {"image": "discarded",
+                                "depends_on": ["database"]}}}
+        print(json.dumps(execute_isolated(fixture), sort_keys=True))
+    else:
+        print(json.dumps(check_casaos(),sort_keys=True))
