@@ -231,6 +231,8 @@ def main():
     p.add_argument("--app-fixture-action", choices=("snapshot", "restore"),
                    help="multi-project isolated staging snapshot/restore only")
     p.add_argument("--app-fixture", type=Path)
+    p.add_argument("--stage-runtime-status", action="store_true",
+                   help="read-only live staging health and migration readiness")
     p.add_argument("--probe-stage-runtime", action="store_true",
                    help="verify local staging health and migration lock before activation")
     p.add_argument("--stage-candidate", type=Path,
@@ -243,7 +245,16 @@ def main():
     p.add_argument("--candidate",type=Path)
     p.add_argument("--report",type=Path)
     args=p.parse_args()
-    if args.orchestrate_fixture:
+    if args.stage_runtime_status:
+        if (args.orchestrate_fixture or args.checkpoint or args.fixture_action
+                or args.app_fixture_action or args.fixture_target or args.fixture_bundle
+                or args.app_fixture or args.backup or args.candidate
+                or args.stage_candidate or args.probe_stage_runtime):
+            p.error("stage runtime status is a standalone read-only operation")
+        result = {"scope": "LIVE_STAGING_READ_ONLY",
+                  "runtime": stage_runtime_probe(), "m1_acceptance_percent": 49,
+                  "migration_allowed": False, "production_modified": False}
+    elif args.orchestrate_fixture:
         if (args.checkpoint or args.fixture_action or args.app_fixture_action
                 or not args.fixture_target or not args.fixture_bundle or not args.app_fixture
                 or args.backup or args.candidate):
