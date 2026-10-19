@@ -15,6 +15,7 @@ from stage_storage import (listing as stage_files_list, read as stage_file_read,
                            create_binary as stage_upload_bytes,
                            download_binary as stage_download_bytes, MAX_FILE as STAGE_MAX_FILE)
 from stage_compose import catalog as stage_compose_catalog, list_projects as stage_compose_list, action as stage_compose_action
+from stage_unified_inventory import inventory as unified_stage_inventory
 from stage_topology import list_topologies as topology_list, action as topology_action
 from stage_topology_health import inspect as stage_topology_health
 from casaos_appstore import catalog as casaos_store_catalog, compatibility as casaos_store_compatibility
@@ -307,6 +308,12 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self._stage_auth()
                 return self.respond(200, compose_recovery_list())
+            except AppError as err:
+                return self.respond(err.status, {"error": err.message})
+        if self.path == "/api/v1/stage/unified-inventory":
+            try:
+                self._stage_auth()
+                return self.respond(200, unified_stage_inventory())
             except AppError as err:
                 return self.respond(err.status, {"error": err.message})
         if self.path == "/api/v1/stage/compose":
