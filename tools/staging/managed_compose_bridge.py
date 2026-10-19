@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Read-only integration between stage App Management and Compose fixture planner.
+"""Stage-owned App Management and Compose lifecycle integration.
 
-Never starts/stops applications, reads credentials, or touches production.
+Mutations delegate to the existing guarded stage Compose manager only.
 """
 from __future__ import annotations
 import json
@@ -58,7 +58,35 @@ def report(doc):
     return result
 
 
+def lifecycle_smoke():
+    """One bounded staging-only install/lifecycle/uninstall integration."""
+    before = list_projects()["projects"]
+    if before:
+        raise AppError("stage_compose_inventory_not_empty_for_smoke", 409)
+    installed = managed_action("install", template="task-worker")
+    project = installed["app"]["project"]
+    operations = ["stop", "start", "restart"]
+    try:
+        for op in operations:
+            result = managed_action(op, project=project)
+            if result["operation"] != op:
+                raise RuntimeError("stage Compose lifecycle operation mismatch")
+        if len(list_projects()["projects"]) != 1:
+            raise RuntimeError("stage Compose inventory missing managed fixture")
+    finally:
+        managed_action("uninstall", project=project)
+    if list_projects()["projects"]:
+        raise RuntimeError("stage Compose fixture remained registered")
+    return {"scope": "STAGE_COMPOSE_OWNED_FIXTURE_ONLY",
+            "install_stop_start_restart_uninstall": "PASS",
+            "stage_inventory_restored": True,
+            "production_mutation_allowed": False}
+
+
 if __name__ == "__main__":
+    if "--lifecycle-smoke" in sys.argv:
+        print(json.dumps(lifecycle_smoke(), sort_keys=True))
+        sys.exit(0)
     # Synthetic input only. Source app configs are never logged.
     fixture = {"services": {"database": {"image": "discarded"},
         "frontend": {"image": "discarded", "depends_on": ["database"],
