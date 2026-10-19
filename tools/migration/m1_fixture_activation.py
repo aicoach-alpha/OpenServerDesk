@@ -6,6 +6,8 @@ Never operates on CasaOS production paths, mounted user data, or live services.
 import argparse
 import json
 import tempfile
+import os
+import stat
 from pathlib import Path
 from journaled_pair import replace_pair, recover
 
@@ -19,6 +21,15 @@ def isolated(path):
         raise ValueError("fixture must be inside temporary directory")
     if any(part.is_symlink() for part in [raw, *raw.parents]):
         raise ValueError("symlinked fixture path forbidden")
+    # A path under /tmp is not necessarily disposable: a bind mount or
+    # another filesystem can be mounted beneath it. Never cross devices.
+    if resolved.stat().st_dev != root.stat().st_dev:
+        raise ValueError("fixture must remain on temporary filesystem")
+    for part in (resolved, *[p for p in resolved.parents if p == root or root in p.parents]):
+        if os.path.ismount(part) and part != root:
+            raise ValueError("mounted fixture directory forbidden")
+        if part != root and (part.stat().st_mode & stat.S_IWOTH):
+            raise ValueError("world-writable fixture ancestry forbidden")
     return resolved
 
 def execute(action, target, bundle=None):
