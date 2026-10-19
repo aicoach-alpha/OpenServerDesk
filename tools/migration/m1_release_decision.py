@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.26_amd64.deb")
+PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.51_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -30,7 +30,7 @@ def decide():
     pkg_version = command("dpkg-deb", "--field", str(PKG), "Version")
     if (pkg_name.returncode or pkg_version.returncode
             or pkg_name.stdout.strip() != "openserverdesk-m1-candidate"
-            or pkg_version.stdout.strip() != "0.6.26"):
+            or pkg_version.stdout.strip() != "0.6.51"):
         raise RuntimeError("candidate metadata does not match exact release version")
     files = contents.stdout
     package_components = {
@@ -171,8 +171,8 @@ def decide():
                          "production_release_approved": False}
     try:
         import importlib.util
-        signing = ROOT / "tools/release/stage_artifact_signing_0626.py"
-        spec = importlib.util.spec_from_file_location("osd_stage_0616_signature", signing)
+        signing = ROOT / "tools/release/stage_artifact_signing_0651.py"
+        spec = importlib.util.spec_from_file_location("osd_stage_0651_signature", signing)
         if spec is None or spec.loader is None:
             raise ValueError("staging signature verifier unavailable")
         module = importlib.util.module_from_spec(spec)
