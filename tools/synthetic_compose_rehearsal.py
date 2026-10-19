@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import subprocess
 import tempfile
 from pathlib import Path
@@ -62,6 +63,40 @@ def verify_fixture(config: dict):
         if result.returncode:
             raise ValueError("synthetic Compose semantic validation failed")
 
+
+
+def execute_isolated(doc):
+    """Run only generated BusyBox fixtures in a unique staging Compose project.
+
+    This never replays source images, binds, ports, secrets, or env. A unique
+    project name prevents touching any existing Compose application.
+    """
+    config, _ = synthetic(doc)
+    project = "osd-m1-fixture-" + secrets.token_hex(6)
+    with tempfile.TemporaryDirectory(prefix="osd-exec-", dir=OUTPUT_ROOT) as tmp:
+        path = Path(tmp) / "compose.json"
+        path.write_text(json.dumps(config, sort_keys=True) + "\n")
+        base = ["docker", "compose", "-p", project, "-f", str(path)]
+        started = False
+        try:
+            up = subprocess.run(base + ["up", "-d", "--no-build", "--pull", "never"],
+                                capture_output=True, text=True, timeout=75)
+            if up.returncode:
+                raise RuntimeError("isolated synthetic Compose startup failed")
+            started = True
+            ps = subprocess.run(base + ["ps", "--status", "running", "--services"],
+                                capture_output=True, text=True, timeout=20)
+            if ps.returncode or set(ps.stdout.splitlines()) != set(config["services"]):
+                raise RuntimeError("isolated synthetic services not all running")
+            return {"scope": "SYNTHETIC_COMPOSE_EXECUTION_ONLY",
+                    "synthetic_services_running": len(config["services"]),
+                    "real_app_imports_verified": 0,
+                    "production_modified": False}
+        finally:
+            # Cleanup even after a partial 'up' failure; the unique project
+            # cannot match a pre-existing production Compose project.
+            subprocess.run(base + ["down", "--remove-orphans"],
+                           capture_output=True, text=True, timeout=40)
 
 def check_casaos():
     if not CONFIG.is_dir() or CONFIG.is_symlink():
