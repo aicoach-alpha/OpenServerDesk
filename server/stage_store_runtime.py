@@ -101,6 +101,88 @@ def _network_check(project,manifest,cfg,host,obj):
         raise AppError("compiled_stage_port_mapping_changed",403)
 
 
+def _dependency_map(manifest):
+    services=manifest.get("services")
+    if not isinstance(services,dict) or not 1<=len(services)<=6:
+        raise AppError("invalid_compiled_services",403)
+    edges={}
+    for name,cfg in services.items():
+        raw=cfg.get("depends_on",[])
+        if isinstance(raw,list):
+            deps={dep:"service_started" for dep in raw}
+            if len(deps)!=len(raw):
+                raise AppError("duplicate_compiled_dependency",403)
+        elif isinstance(raw,dict):
+            deps={}
+            for dep,condition in raw.items():
+                if (not isinstance(condition,dict) or set(condition)!={"condition"}
+                        or condition["condition"] not in ("service_started","service_healthy")):
+                    raise AppError("unsafe_compiled_dependency_condition",403)
+                deps[dep]=condition["condition"]
+        else:
+            raise AppError("invalid_compiled_dependency",403)
+        if any(not isinstance(dep,str) or dep not in services or dep==name for dep in deps):
+            raise AppError("unsafe_compiled_dependency_reference",403)
+        edges[name]=deps
+    return edges
+
+def _startup_order(manifest):
+    edges=_dependency_map(manifest)
+    done=set()
+    active=set()
+    order=[]
+    def visit(name):
+        if name in active:
+            raise AppError("cyclic_compiled_dependencies",403)
+        if name in done:return
+        active.add(name)
+        for dep in sorted(edges[name]):visit(dep)
+        active.remove(name)
+        done.add(name)
+        order.append(name)
+    for name in sorted(edges):visit(name)
+    return order
+
+def _ordered_stops(services):
+    # Uses dependencies already proven by _owned against the stage manifest.
+    edges={n:set(x.get("depends_on",[])) for n,x in services.items()}
+    order=[]
+    visiting=set()
+    def visit(name):
+        if name in visiting:raise AppError("cyclic_compiled_dependencies",403)
+        if name in order:return
+        visiting.add(name)
+        for dep in sorted(edges[name]):
+            if dep not in services:raise AppError("unsafe_compiled_dependency_reference",403)
+            visit(dep)
+        visiting.remove(name)
+        order.append(name)
+    for name in sorted(services):visit(name)
+    return list(reversed(order))
+
+def _wait_for_dependency(project,manifest,owner,service,grace_seconds=22):
+    dependencies=_dependency_map(manifest)[service]
+    if not dependencies:return
+    deadline=time.monotonic()+grace_seconds
+    while True:
+        current=_owned(project,manifest,owner)
+        states={name:(current[name]["running"] and (
+            condition=="service_started" or current[name].get("health")=="healthy"))
+                for name,condition in dependencies.items()}
+        if all(states.values()):return
+        # A service_healthy dependency without a Docker healthcheck
+        # can never be fulfilled; reject instead of starting the dependent.
+        if any(condition=="service_healthy" and
+               current[name].get("health") is None
+               for name,condition in dependencies.items()):
+            raise AppError("compiled_dependency_healthcheck_missing",503)
+        if any(current[name].get("health")=="unhealthy"
+               for name in dependencies):
+            raise AppError("compiled_dependency_unhealthy",503)
+        if time.monotonic()>=deadline:
+            raise AppError("compiled_dependency_not_ready",503)
+        time.sleep(1)
+
 def _tcp_ready(port):
     if port is None:return True
     try:
@@ -121,7 +203,16 @@ def _confirm_ready(project,manifest,owner,grace_seconds=11):
     while True:
         services=_owned(project,manifest,owner)
         running=bool(services) and all(x["running"] for x in services.values())
-        reachable=running and _tcp_ready(port)
+        # Dependency-aware readiness does not treat an unhealthy database
+        # as a healthy deployment just because the web TCP port opened.
+        required_healthy={name for cfg in _dependency_map(manifest).values()
+                          for name,condition in cfg.items()
+                          if condition=="service_healthy"}
+        health_good=all(s.get("health") not in ("starting","unhealthy")
+                        for s in services.values())
+        healthy_ready=all(services[name].get("health")=="healthy"
+                          for name in required_healthy)
+        reachable=running and health_good and healthy_ready and _tcp_ready(port)
         now=time.monotonic()
         if now>=deadline:
             if reachable:
@@ -252,6 +343,8 @@ def _validate(project,manifest,owner):
                 or src.stat().st_dev!=ROOT.stat().st_dev):
                 raise AppError("unsafe_compiled_stage_volume",403)
             used.append(str(src))
+    # Validate the full graph, including dependency condition and cycles.
+    _startup_order(manifest)
     if len(used)!=len(set(used)):
         raise AppError("duplicate_compiled_stage_volume",403)
     if len(public)>1:
@@ -295,10 +388,15 @@ def _owned(project,manifest,owner):
             raise AppError("compiled_container_provenance_violation",403)
         _network_check(project,manifest,spec,host,obj)
         state=obj.get("State") or {}
+        health=(state.get("Health") or {}).get("Status")
+        if health not in (None,"starting","healthy","unhealthy"):
+            raise AppError("compiled_container_health_invalid",503)
         seen[name]={"name":name,"id":ident,"running":bool(state.get("Running")),
                     "status":state.get("Status","unknown"),
                     "exit_code":state.get("ExitCode") if state.get("Status")=="exited" else None,
-                    "oom_killed":state.get("OOMKilled") is True}
+                    "oom_killed":state.get("OOMKilled") is True,
+                    "health":health,
+                    "depends_on":sorted(_dependency_map(manifest)[name])}
     return seen
 
 def _manifest(project,app_id,owner,raw):
@@ -411,8 +509,10 @@ def _summary(project,entry):
             "revision":entry["revision"],
             "services":[{"name":s["name"],"running":s["running"],
                          "status":s["status"],"exit_code":s["exit_code"],
-                         "oom_killed":s["oom_killed"]}
+                         "oom_killed":s["oom_killed"],"health":s["health"],
+                         "depends_on":s["depends_on"]}
                         for s in sorted(services.values(),key=lambda x:x["name"])],
+            "startup_order":_startup_order(manifest),
             "all_running":all(x["running"] for x in services.values()),
             "outbound_network_pilot":_network_contract(manifest)[0]=="egress" if "networks" in manifest else False,
             "image_configuration_rollback":True,
@@ -432,7 +532,9 @@ def _online_file(project):
     return _file(_folder(project)/"online-data-pending.json")
 
 def _stop_for_online(services):
-    for s in services.values():
+    # Dependents must shut down before their data/database dependencies.
+    for name in _ordered_stops(services):
+        s=services[name]
         if s["running"]:
             docker("stop","--time","3",s["id"])
 
@@ -441,8 +543,12 @@ def _resume_online(project,manifest,owner,running):
     current=_owned(project,manifest,owner)
     if set(running)!=set(current):
         raise AppError("stage_online_service_layout_changed",503)
-    for name,s in current.items():
+    # Restore the service graph in dependency order; do not start the web
+    # service before its DB has started or passed required healthchecks.
+    for name in _startup_order(manifest):
+        s=current[name]
         if name in running and not s["running"]:
+            _wait_for_dependency(project,manifest,owner,name)
             docker("start",s["id"])
     current=_owned(project,manifest,owner)
     if any(current[name]["running"]!=(name in running) for name in current):
@@ -808,15 +914,20 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             return {"operation":"uninstalled","project":project,
                     "stage_data_retained":True,"production_mutation_allowed":False}
         if action in ("start","stop","restart"):
-            for item in services.values():
-                if action=="start" and not item["running"]:
-                    docker("start",item["id"])
-                if action=="stop" and item["running"]:
-                    docker("stop","--time","2",item["id"])
-                if action=="restart" and item["running"]:
-                    docker("restart","--time","2",item["id"])
+            original={name for name,item in services.items() if item["running"]}
+            if action in ("stop","restart"):
+                for name in _ordered_stops(services):
+                    if services[name]["running"]:
+                        docker("stop","--time","2",services[name]["id"])
             if action in ("start","restart"):
-                _confirm_ready(project,manifest,entry["owner"])
+                current=_owned(project,manifest,entry["owner"])
+                for name in _startup_order(manifest):
+                    if action=="start" or name in original:
+                        if not current[name]["running"]:
+                            _wait_for_dependency(project,manifest,entry["owner"],name)
+                            docker("start",current[name]["id"])
+                if action=="start" or len(original)==len(services):
+                    _confirm_ready(project,manifest,entry["owner"])
             return {"operation":action,"app":_summary(project,entry)}
         # Version changes are now accompanied by cold stage-volume snapshots
         # and an exact config-linked restore checkpoint.

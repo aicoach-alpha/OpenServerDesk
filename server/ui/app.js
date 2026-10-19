@@ -1090,7 +1090,9 @@ async function compiledRefresh(){
       const row=document.createElement("tr");
       cell(row,app.app_id+" · "+app.project);
       cell(row,app.services.map(x=>x.name+":"+(x.running?"running":
-        (x.status==="exited"?"exited (code "+String(x.exit_code)+")":"stopped"))).join(", "));
+        (x.status==="exited"?"exited (code "+String(x.exit_code)+")":"stopped"))+
+        (x.health?" · "+x.health:"")+
+        (x.depends_on&&x.depends_on.length?" ← "+x.depends_on.join("+"):"")).join(", "));
       cell(row,String(app.revision)+(app.application_data_rollback?
         " · configuration + data rollback ready":" · no linked data rollback")+
         (app.outbound_network_pilot?

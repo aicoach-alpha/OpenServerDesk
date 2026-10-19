@@ -95,8 +95,11 @@ def dependencies(service):
         deps=source
     elif isinstance(source,dict):
         deps=list(source)
+        # Jobs which legitimately exit cannot pass this runtime's
+        # all-running readiness contract. Refuse instead of silently
+        # converting service_completed_successfully to service_started.
         if not all(isinstance(v,dict) and v.get("condition","service_started")
-                   in ("service_started","service_healthy","service_completed_successfully")
+                   in ("service_started","service_healthy")
                    for v in source.values()):
             raise AppError("invalid_catalog_dependency",409)
     else:
@@ -150,6 +153,9 @@ def analyze(doc, resolver=resolve_image):
         edges[name]=deps
         specs.append({"name":name,"image":image,"immutable_image":resolver(image),
                       "mount_targets":targets,"depends_on":deps,
+                      "dependency_conditions":{dep:((service.get("depends_on") or {}).get(dep,{}).get(
+                          "condition","service_started") if isinstance(service.get("depends_on"),dict)
+                          else "service_started") for dep in deps},
                       "web_target":catalog_tcp_port(service)})
     if any(dep not in edges or dep==name for name,ds in edges.items() for dep in ds):
         raise AppError("missing_or_self_catalog_dependency",409)
@@ -219,7 +225,12 @@ def compile_stage(project, app_id, host_port=None):
                       "osd.m1.compiled.app":app_id},
         }
         if spec["depends_on"]:
-            result["depends_on"]=sorted(spec["depends_on"])
+            conditions=spec["dependency_conditions"]
+            if any(c=="service_healthy" for c in conditions.values()):
+                result["depends_on"]={name:{"condition":conditions[name]}
+                                      for name in sorted(conditions)}
+            else:
+                result["depends_on"]=sorted(spec["depends_on"])
         if spec["web_target"] is not None and host_port is not None and not published:
             if type(host_port) is not int or not 18720<=host_port<=19999:
                 raise AppError("invalid_stage_web_port",400)
