@@ -518,6 +518,11 @@ async function stageComposeRefresh() {
     const result=await stageComposeRequest("GET");
     $("stage-compose-status").textContent=result.projects.length+
       " isolated Compose projects; no existing CasaOS container can be changed.";
+    const summary=$("stage-unified-summary");
+    const dockerRows=$("stage-apps-list").querySelectorAll("tr").length;
+    summary.textContent="App Management: "+dockerRows+
+      " Docker app rows · "+result.projects.length+
+      " Compose projects (staging only).";
     const tbody=$("stage-compose-list");
     tbody.replaceChildren();
     for (const project of result.projects) {
