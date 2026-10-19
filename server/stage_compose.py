@@ -109,6 +109,14 @@ def _compose_content(project, owner, template, data):
                 "mem_limit": "64m",
                 "pids_limit": 32,
                 "restart": "no",
+                # Only newly installed isolated static-web fixtures get a
+                # localhost-only probe; existing projects stay unchanged.
+                **({"healthcheck": {
+                    "test": ["CMD", "wget", "-q", "-O", "/dev/null",
+                             "http://127.0.0.1:8080/index.html"],
+                    "interval": "5s", "timeout": "2s",
+                    "start_period": "2s", "retries": 2,
+                }} if template == "static-web" else {}),
                 "labels": {
                     "osd.m1.compose": "stage-only",
                     "osd.m1.compose.owner": owner,

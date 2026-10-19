@@ -165,6 +165,20 @@ async function updateUnifiedInventoryAfterAction() {
   try { await unifiedStageInventoryRefresh(); }
   catch(err) { $("stage-unified-summary").textContent="Unified inventory: "+err.message; }
 }
+// Docker healthchecks are optional and only describe the in-container probe.
+function stageHealthLabel(running, health) {
+  const descriptions={
+    healthy:"Docker healthcheck passed",
+    unhealthy:"Docker healthcheck failed",
+    starting:"Docker healthcheck starting",
+    not_configured:"Docker healthcheck not configured",
+    unknown:"Docker healthcheck unknown"
+  };
+  if (typeof running!=="boolean" ||
+      !Object.prototype.hasOwnProperty.call(descriptions,health))
+    throw Error("Invalid isolated staging health status");
+  return running ? descriptions[health] : "Not ready (stopped)";
+}
 async function unifiedStageInventoryRefresh() {
   if (!stageToken) return;
   const response=await fetch("/api/v1/stage/unified-inventory",{
@@ -595,11 +609,6 @@ async function stageComposeRefresh() {
     const result=await stageComposeRequest("GET");
     $("stage-compose-status").textContent=result.projects.length+
       " isolated Compose projects; no existing CasaOS container can be changed.";
-    const summary=$("stage-unified-summary");
-    const dockerRows=$("stage-apps-list").querySelectorAll("tr").length;
-    summary.textContent="App Management: "+dockerRows+
-      " Docker app rows · "+result.projects.length+
-      " Compose projects (staging only).";
     const tbody=$("stage-compose-list");
     tbody.replaceChildren();
     for (const project of result.projects) {
@@ -607,6 +616,7 @@ async function stageComposeRefresh() {
       cell(tr,project.project);cell(tr,project.template);
       const status=cell(tr,project.running?"running":"stopped");
       status.className=project.running?"running":"inactive";
+      cell(tr,stageHealthLabel(project.running,project.health_status));
       const tools=document.createElement("td");
       for (const action of (project.running?["stop","restart","uninstall"]:["start","uninstall"])) {
         tools.appendChild(stageButton(action,false,()=>stageComposeAct(action,project.project)));
@@ -622,6 +632,7 @@ async function stageComposeAct(action, project) {
   try {
     await stageComposeRequest("POST",{action,project});
     await stageComposeRefresh();
+    await updateUnifiedInventoryAfterAction();
     refresh();
   } catch(err) {
     $("stage-compose-status").textContent=err.message;
@@ -633,6 +644,7 @@ $("stage-compose-install").addEventListener("click",async()=>{
   try {
     await stageComposeRequest("POST",{action:"install",template:$("stage-compose-template").value});
     await stageComposeRefresh();
+    await updateUnifiedInventoryAfterAction();
     refresh();
   } catch(err) {
     $("stage-compose-status").textContent=err.message;
@@ -946,7 +958,8 @@ async function appstorePilotRefresh() {
     for (const app of result.apps) {
       const row=document.createElement("div");
       const label=document.createElement("span");
-      label.textContent=app.app_id+" · "+app.state+" · ";
+      label.textContent=app.app_id+" · "+app.state+" · "+
+        stageHealthLabel(app.running,app.health_status)+" · ";
       row.appendChild(label);
       const operations=app.running?["stop","restart","uninstall"]:["start","uninstall"];
       for (const action of operations) {
@@ -1040,7 +1053,8 @@ async function storeGeneralRefresh() {
     for (const entry of result.apps) {
       const row=document.createElement("div");
       const label=document.createElement("span");
-      label.textContent=entry.app_id+" · "+(entry.running?"running":"stopped")+" · ";
+      label.textContent=entry.app_id+" · "+(entry.running?"running":"stopped")+" · "+
+        stageHealthLabel(entry.running,entry.health_status)+" · ";
       row.append(label);
       for (const op of (entry.running?["stop","restart","uninstall"]:["start","uninstall"])) {
         const btn=document.createElement("button");
