@@ -41,6 +41,7 @@ def synthetic(doc):
             "networks": ["fixture_internal"],
             "read_only": True,
             "tmpfs": ["/fixture-data:rw,noexec,nosuid,size=1m"],
+            "volumes": [f"fixture_{name}:/fixture-persistent"],
             "environment": {"OSD_FIXTURE_MODE": "synthetic"},
             "user": "1000:1000",
             "cap_drop": ["ALL"],
@@ -53,7 +54,8 @@ def synthetic(doc):
             clean[name]["depends_on"] = sorted(depends)
     return {"name": "osd-m1-synthetic",
             "services": clean,
-            "networks": {"fixture_internal": {"internal": True}}}, summary
+            "networks": {"fixture_internal": {"internal": True}},
+            "volumes": {f"fixture_{name}": {} for name in clean}}, summary
 
 
 def verify_fixture(config: dict):
@@ -132,6 +134,17 @@ def execute_isolated(doc):
                                 capture_output=True, text=True, timeout=20)
             if ps.returncode or set(ps.stdout.splitlines()) != set(config["services"]):
                 raise RuntimeError("isolated synthetic services not all running")
+            # Write only synthetic data to each uniquely named stage volume.
+            before = subprocess.run(base + ["ps", "-q"], capture_output=True,
+                                    text=True, timeout=20)
+            if before.returncode or len(before.stdout.splitlines()) != len(config["services"]):
+                raise RuntimeError("isolated fixture IDs unavailable before persistence test")
+            for cid in before.stdout.splitlines():
+                write = subprocess.run(["docker", "exec", "--user", "0:0", cid, "sh", "-c",
+                    "printf osd-stage-marker > /fixture-persistent/marker"],
+                    capture_output=True, text=True, timeout=20)
+                if write.returncode:
+                    raise RuntimeError("isolated fixture persistence write failed")
             # Exercise a real lifecycle transition on this unique fixture only.
             stop = subprocess.run(base + ["stop"], capture_output=True,
                                   text=True, timeout=45)
@@ -149,6 +162,17 @@ def execute_isolated(doc):
                                      capture_output=True, text=True, timeout=20)
             if resumed.returncode or set(resumed.stdout.splitlines()) != set(config["services"]):
                 raise RuntimeError("isolated fixture did not resume")
+            # Data survives stop/start without touching any host bind mount.
+            after = subprocess.run(base + ["ps", "-q"], capture_output=True,
+                                   text=True, timeout=20)
+            if after.returncode or len(after.stdout.splitlines()) != len(config["services"]):
+                raise RuntimeError("isolated fixture IDs unavailable after restart")
+            for cid in after.stdout.splitlines():
+                read = subprocess.run(["docker", "exec", cid, "cat",
+                    "/fixture-persistent/marker"], capture_output=True,
+                    text=True, timeout=20)
+                if read.returncode or read.stdout != "osd-stage-marker":
+                    raise RuntimeError("isolated fixture persistence did not survive restart")
             # Verify actual staging resources, not just Compose declarations.
             ids = subprocess.run(base + ["ps", "-q"], capture_output=True,
                                  text=True, timeout=20)
@@ -175,6 +199,7 @@ def execute_isolated(doc):
                     "ephemeral_tmpfs": True,
                     "runtime_resource_guards_verified": True,
                     "stop_start_lifecycle_verified": True,
+                    "synthetic_volume_persistence_verified": True,
                     "synthetic_environment": True,
                     "translated_resource_counts": resource_counts,
                     "real_app_imports_verified": 0,
@@ -182,7 +207,7 @@ def execute_isolated(doc):
         finally:
             # Cleanup even after a partial 'up' failure; the unique project
             # cannot match a pre-existing production Compose project.
-            subprocess.run(base + ["down", "--remove-orphans"],
+            subprocess.run(base + ["down", "--remove-orphans", "--volumes"],
                            capture_output=True, text=True, timeout=40)
 
 def check_casaos():
