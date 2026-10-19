@@ -72,10 +72,12 @@ def translate_stage_resources(doc):
     Never copy source env values, port numbers, mount paths, or images.
     Unsupported source features remain blocked by the strict planner.
     """
-    safe = {"image", "depends_on", "ports", "environment", "volumes"}
+    safe = {"image", "depends_on", "ports", "environment", "volumes",
+            "container_name", "hostname", "cpu_shares", "deploy",
+            "restart", "labels", "mem_limit", "pids_limit", "pull_policy"}
     result = {"services": {}}
     counts = {"port_declarations": 0, "environment_declarations": 0,
-              "volume_declarations": 0}
+              "volume_declarations": 0, "discarded_runtime_fields": 0}
     services = doc.get("services")
     if not isinstance(services, dict) or not services:
         raise ValueError("invalid source services")
@@ -83,6 +85,8 @@ def translate_stage_resources(doc):
         if not isinstance(cfg, dict) or set(cfg) - safe:
             raise ValueError("source features require explicit stage translation")
         out = {"image": "busybox:latest"}
+        counts["discarded_runtime_fields"] += len(set(cfg) -
+            {"image", "depends_on", "ports", "environment", "volumes"})
         if "depends_on" in cfg:
             out["depends_on"] = cfg["depends_on"]
         for field, counter in (("ports", "port_declarations"),
@@ -184,7 +188,11 @@ if __name__=="__main__":
                                 "depends_on": ["database"],
                                 "ports": ["9999:80"],
                                 "environment": {"SECRET": "discarded"},
-                                "volumes": ["/private:/data"]}}}
+                                "volumes": ["/private:/data"],
+                                "container_name": "source-name-discarded",
+                                "hostname": "source-host-discarded",
+                                "cpu_shares": 512,
+                                "deploy": {"resources": {"limits": {"memory": "1G"}}}}}}
         print(json.dumps(execute_isolated(fixture), sort_keys=True))
     else:
         print(json.dumps(check_casaos(),sort_keys=True))
