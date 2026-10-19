@@ -5,7 +5,7 @@ from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
 from m1_fixture_activation import execute as fixture_execute
-from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture, scan as app_scan, projects as app_projects
+from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture, scan as app_scan, projects as app_projects, owner as app_owner
 
 def sha256(p):
     return backup.digest(p)
@@ -54,7 +54,9 @@ def checkpoint_integrity(target, app_root):
             manifest = json.loads((journal / "manifest.json").read_text())
             if set(manifest) != {"userservice", "user.db"}:
                 raise ValueError("unexpected undo manifest")
-            if any((journal / name).is_symlink() or
+            if (journal / "manifest.json").is_symlink() or any(
+                   not isinstance(expected, str) or
+                   (journal / name).is_symlink() or
                    pair_digest(journal / name) != expected
                    for name, expected in manifest.items()):
                 raise ValueError("undo checksum mismatch")
@@ -77,8 +79,9 @@ def checkpoint_integrity(target, app_root):
                 raise ValueError("symlinked manifest")
             doc = json.loads(manifest_path.read_text())
             if (set(doc) != {"format", "owner", "projects"} or doc["format"] != 1
-                    or not isinstance(doc["projects"], dict) or not doc["projects"]):
-                raise ValueError("invalid manifest")
+                    or not isinstance(doc["projects"], dict) or not doc["projects"]
+                    or doc["owner"] != app_owner(root)):
+                raise ValueError("invalid or foreign manifest")
             entries = app_projects(bundle / "data")
             if {p.name: app_scan(p) for p in entries} != doc["projects"]:
                 raise ValueError("snapshot checksum mismatch")
