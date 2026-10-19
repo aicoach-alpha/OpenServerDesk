@@ -190,41 +190,66 @@ async function unifiedStageInventoryRefresh() {
       result.production_mutation_allowed!==false)
     throw Error("Unsafe unified inventory scope");
   const counts=result.counts;
-  const expected=["docker","compose","store_pilot","store_general"];
-  if (!expected.every(key=>Number.isInteger(counts[key]) && counts[key]>=0))
-    throw Error("Invalid unified inventory counts");
+  const expected=["docker","compose","store_pilot","store_general","store_compiled"];
+  const unavailable=result.unavailable_sources;
+  if (!Array.isArray(unavailable) ||
+      unavailable.some(key=>!expected.includes(key)) ||
+      new Set(unavailable).size!==unavailable.length ||
+      result.complete!==(unavailable.length===0) ||
+      !expected.every(key=>unavailable.includes(key)?
+        counts[key]===null:(Number.isInteger(counts[key]) && counts[key]>=0)))
+    throw Error("Invalid unified inventory source availability");
   if (!Array.isArray(result.applications) ||
       result.applications.length!==result.total ||
-      result.total!==expected.reduce((sum,key)=>sum+counts[key],0))
+      result.total!==expected.reduce((sum,key)=>sum+(counts[key]||0),0))
     throw Error("Invalid unified inventory entries");
   const tbody=$("stage-unified-apps-list");
   const rows=[];
   for (const app of result.applications) {
+    const compiled=app.source==="store_compiled";
+    const validHealth=["healthy","unhealthy","starting","not_configured","unknown"];
+    const validReadiness=["not_ready","not_verified","healthcheck_passed",
+                          "healthcheck_failed","checking"];
     if (!expected.includes(app.source) || typeof app.name!=="string" ||
         typeof app.running!=="boolean" ||
-        app.lifecycle!==(app.running?"running":"stopped") ||
-        !["healthy","unhealthy","starting","not_configured","unknown"].includes(app.health_status) ||
+        !validHealth.includes(app.health_status) ||
+        !validReadiness.includes(app.readiness) ||
+        (app.project!==null && typeof app.project!=="string"))
+      throw Error("Invalid staged application record");
+    if (compiled) {
+      const n=app.service_counts;
+      if (!["running","stopped","partially_running"].includes(app.lifecycle) ||
+          app.running!==(app.lifecycle==="running") ||
+          typeof app.project!=="string" ||
+          !n || !Number.isInteger(n.total) || n.total<1 ||
+          !Number.isInteger(n.running) || !Number.isInteger(n.stopped) ||
+          n.running+n.stopped!==n.total ||
+          typeof app.partial_failure!=="boolean")
+        throw Error("Invalid compiled application lifecycle");
+    } else if (app.lifecycle!==(app.running?"running":"stopped") ||
         app.readiness!==(app.running?
           ({healthy:"healthcheck_passed",unhealthy:"healthcheck_failed",
             starting:"checking",not_configured:"not_verified",
-            unknown:"not_verified"})[app.health_status]:"not_ready") ||
-        (app.project!==null && typeof app.project!=="string"))
-      throw Error("Invalid staged application record");
+            unknown:"not_verified"})[app.health_status]:"not_ready")) {
+      throw Error("Invalid isolated application lifecycle");
+    }
     const tr=document.createElement("tr");
     cell(tr,app.source);cell(tr,app.name);cell(tr,app.project||"—");
-    const state=cell(tr,app.running?"running":"stopped");
-    state.className=app.running?"running":"inactive";
+    const state=cell(tr,app.lifecycle.replaceAll("_"," "));
+    state.className=app.lifecycle==="running"?"running":"inactive";
     const readinessText={
       not_ready:"Not ready",not_verified:"Not verified",
       healthcheck_passed:"Healthcheck passed",healthcheck_failed:"Healthcheck failed",
       checking:"Checking"
     };
-    cell(tr,readinessText[app.readiness]);
+    cell(tr,readinessText[app.readiness]+(compiled?
+      " · "+app.service_counts.running+"/"+app.service_counts.total+" services running":""));
     const destinations={
       docker:"stage-apps-list",
       compose:"stage-compose-list",
       store_pilot:"appstore-pilot-apps",
-      store_general:"store-general-list"
+      store_general:"store-general-list",
+      store_compiled:"compiled-list"
     };
     const actionCell=document.createElement("td");
     const go=stageButton("Manage",false,()=>{
@@ -242,13 +267,19 @@ async function unifiedStageInventoryRefresh() {
   const lifecycle=result.lifecycle_counts;
   if (!lifecycle || !Number.isInteger(lifecycle.running) ||
       !Number.isInteger(lifecycle.stopped) ||
-      lifecycle.running+lifecycle.stopped!==result.total)
+      !Number.isInteger(lifecycle.partially_running) ||
+      lifecycle.running+lifecycle.stopped+lifecycle.partially_running!==result.total)
     throw Error("Invalid lifecycle counts");
   $("stage-unified-summary").textContent="Managed staging inventory: "+
     result.total+" total · "+counts.docker+" Docker · "+counts.compose+
     " Compose · "+counts.store_pilot+" Store pilot · "+
     counts.store_general+" Store catalog · "+
-    lifecycle.running+" running · "+lifecycle.stopped+" stopped";
+    (counts.store_compiled===null?"Store multi-service unavailable":
+      counts.store_compiled+" Store multi-service")+
+    " · "+lifecycle.running+" running · "+
+    lifecycle.partially_running+" partially running · "+
+    lifecycle.stopped+" stopped"+
+    (result.complete?"":" · Incomplete inventory: "+unavailable.join(", "));
 }
 async function stageRefresh() {
   try {
@@ -1204,8 +1235,17 @@ async function compiledRefresh(){
       cell(row,app.app_id+" · "+app.project);
       cell(row,app.services.map(x=>x.name+":"+(x.running?"running":
         (x.status==="exited"?"exited (code "+String(x.exit_code)+")":"stopped"))+
-        (x.health?" · "+x.health:"")+
+        " · "+(x.readiness||"not_verified").replaceAll("_"," ")+
         (x.depends_on&&x.depends_on.length?" ← "+x.depends_on.join("+"):"")).join(", "));
+      const health=app.health_summary;
+      if (!health || !health.counts || health.counts.total!==app.services.length ||
+          !["running","stopped","partially_running"].includes(health.lifecycle) ||
+          !["not_ready","not_verified","checking","healthcheck_passed","healthcheck_failed"].includes(health.readiness))
+        throw Error("Invalid compiled multi-service health summary");
+      cell(row,health.lifecycle.replaceAll("_"," ")+" · "+
+        health.counts.running+"/"+health.counts.total+" running · "+
+        health.readiness.replaceAll("_"," ")+
+        (health.partial_failure?" · partial failure":""));
       cell(row,String(app.revision)+(app.application_data_rollback?
         " · configuration + data rollback ready":" · no linked data rollback")+
         (app.outbound_network_pilot?
@@ -1245,7 +1285,8 @@ async function compiledRefresh(){
     }
     for(const project of state.pending_recovery){
       const row=document.createElement("tr");
-      cell(row,project);cell(row,"Recovery required");cell(row,"—");
+      cell(row,project);cell(row,"Recovery required");
+      cell(row,"Recovery required");cell(row,"—");
       const controls=document.createElement("td");
       controls.appendChild(stageButton("Recover",!stageCanWrite,()=>compiledAct("recover",project)));
       row.appendChild(controls);body.appendChild(row);
@@ -1280,6 +1321,7 @@ async function compiledAct(action,project,checkpoint){
   try{
     await compiledApi("POST",checkpoint?{action,project,checkpoint}:{action,project});
     await compiledRefresh();
+    await updateUnifiedInventoryAfterAction();
   }catch(err){$("compiled-status").textContent=action+" failed: "+err.message;}
 }
 $("compiled-install").addEventListener("click",async()=>{
@@ -1291,6 +1333,7 @@ $("compiled-install").addEventListener("click",async()=>{
   try{
     await compiledApi("POST",{action:"install",id:app});
     await compiledRefresh();
+    await updateUnifiedInventoryAfterAction();
   }catch(err){$("compiled-status").textContent="Install failed: "+err.message;}
   finally{$("compiled-install").disabled=!stageCanWrite||!compiledSelectedId;}
 });

@@ -16,6 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
+from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow
 from stage_postgres_integrity import is_qui_pg
@@ -563,13 +564,22 @@ def _down_owned(project,manifest,owner):
 
 def _summary(project,entry):
     manifest,services=_current(project,entry)
+    service_rows=[
+        {"name":s["name"],"running":s["running"],
+         "status":s["status"],"exit_code":s["exit_code"],
+         "oom_killed":s["oom_killed"],"health":s["health"],
+         "depends_on":s["depends_on"]}
+        for s in sorted(services.values(),key=lambda x:x["name"])
+    ]
+    assessment=assess_multiservice_health(service_rows)
+    health_by_name={s["name"]:s for s in assessment["services"]}
+    for row in service_rows:
+        row["readiness"]=health_by_name[row["name"]]["readiness"]
     return {"project":project,"app_id":entry["app_id"],
             "revision":entry["revision"],
-            "services":[{"name":s["name"],"running":s["running"],
-                         "status":s["status"],"exit_code":s["exit_code"],
-                         "oom_killed":s["oom_killed"],"health":s["health"],
-                         "depends_on":s["depends_on"]}
-                        for s in sorted(services.values(),key=lambda x:x["name"])],
+            "services":service_rows,
+            "health_summary":{key:value for key,value in assessment.items()
+                              if key!="services"},
             "startup_order":_startup_order(manifest),
             "all_running":all(x["running"] for x in services.values()),
             "outbound_network_pilot":_network_contract(manifest)[0]=="egress" if "networks" in manifest else False,
@@ -801,21 +811,25 @@ def _versioned_change(project,entry,values,manifest,services,action,target,journ
         raise AppError("stage_version_change_failed_original_and_data_restored",503) from err
 
 def listing():
-    with guarded():
-        root=_root()
-        pending=[]
-        for child in root.iterdir():
-            if PROJECT.fullmatch(child.name) and not child.is_symlink():
-                j=child/"pending.json"
-                if j.is_file() or j.is_symlink():
-                    pending.append(child.name)
-        values=_projects()
-        apps=[_summary(p,e) for p,e in sorted(values.items()) if p not in pending]
-        return {"apps":apps,
-                "pending_recovery":sorted(pending),
-                "scope":"isolated_compiled_appstore_runtime",
-                "application_data_rollback":any(a["application_data_rollback"] for a in apps),
-                "migration_allowed":False,"production_mutation_allowed":False}
+    try:
+        with guarded():
+            root=_root()
+            pending=[]
+            for child in root.iterdir():
+                if PROJECT.fullmatch(child.name) and not child.is_symlink():
+                    j=child/"pending.json"
+                    if j.is_file() or j.is_symlink():
+                        pending.append(child.name)
+            values=_projects()
+            apps=[_summary(p,e) for p,e in sorted(values.items()) if p not in pending]
+            return {"apps":apps,
+                    "pending_recovery":sorted(pending),
+                    "scope":"isolated_compiled_appstore_runtime",
+                    "application_data_rollback":any(a["application_data_rollback"] for a in apps),
+                    "migration_allowed":False,"production_mutation_allowed":False}
+    except PermissionError as err:
+        # Never bypass root-protected staging recovery/credential files.
+        raise AppError("compiled_stage_metadata_permission_denied",503) from err
 
 def operation(action,app_id=None,project=None,checkpoint=None):
     if action not in ("prepare","install","finish-install","start","stop","restart","uninstall","update","rollback","recover",
