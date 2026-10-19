@@ -13,9 +13,22 @@ sys.path.insert(0, str(ROOT / "server"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from stage_apps import enabled, list_apps, AppError
-from stage_compose import list_projects
+from stage_compose import list_projects, action as compose_action, TEMPLATES
 from synthetic_compose_rehearsal import translate_stage_resources
 from compose_semantics import isolated_deployment_plan
+
+
+def managed_action(operation, *, template=None, project=None):
+    """Use the existing owner-guarded staging Compose manager; no raw Docker."""
+    if operation == "install":
+        if template not in TEMPLATES or project is not None:
+            raise AppError("unsupported_staging_template", 400)
+        return compose_action("install", template=template)
+    if operation not in ("start", "stop", "restart", "uninstall"):
+        raise AppError("unsupported_compose_action", 400)
+    if template is not None or not isinstance(project, str):
+        raise AppError("invalid_compose_project_name", 400)
+    return compose_action(operation, project=project)
 
 
 def report(doc):
