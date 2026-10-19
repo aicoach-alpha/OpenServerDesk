@@ -38,8 +38,10 @@ def synthetic(doc):
             "image": "busybox:latest",
             "pull_policy": "never",
             "command": ["sleep", "60"],
-            "network_mode": "none",
+            "networks": ["fixture_internal"],
             "read_only": True,
+            "tmpfs": ["/fixture-data:rw,noexec,nosuid,size=1m"],
+            "environment": {"OSD_FIXTURE_MODE": "synthetic"},
             "user": "1000:1000",
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
@@ -50,7 +52,8 @@ def synthetic(doc):
         if depends:
             clean[name]["depends_on"] = sorted(depends)
     return {"name": "osd-m1-synthetic",
-            "services": clean}, summary
+            "services": clean,
+            "networks": {"fixture_internal": {"internal": True}}}, summary
 
 
 def verify_fixture(config: dict):
@@ -132,6 +135,9 @@ def execute_isolated(doc):
             return {"scope": "SYNTHETIC_COMPOSE_EXECUTION_ONLY",
                     "synthetic_services_running": len(config["services"]),
                     "dependency_order": plan["service_order"],
+                    "isolated_network": True,
+                    "ephemeral_tmpfs": True,
+                    "synthetic_environment": True,
                     "translated_resource_counts": resource_counts,
                     "real_app_imports_verified": 0,
                     "production_modified": False}
