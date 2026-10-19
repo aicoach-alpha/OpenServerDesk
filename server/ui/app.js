@@ -195,7 +195,6 @@ async function stageRefresh() {
     storeGeneralRefresh();
     appstorePilotRefresh();
     if (!casaosStoreData) appstoreRefresh();
-    stageComposeRefresh();
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=!stageCanWrite;
@@ -217,6 +216,7 @@ async function stageRefresh() {
       }
       tr.appendChild(tools);tbody.appendChild(tr);
     }
+    await stageComposeRefresh();
   } catch(err) {
     stageCanWrite=false;
     $("stage-compose-install").disabled=true;
@@ -563,7 +563,7 @@ $("stage-compose-install").addEventListener("click",async()=>{
     $("stage-compose-install").disabled=!stageCanWrite;
   }
 });
-$("stage-compose-refresh").addEventListener("click",stageComposeRefresh);
+$("stage-compose-refresh").addEventListener("click",stageRefresh);
 
 async function composeBackupRequest(method, data) {
   if (!stageToken) throw Error("Stage authentication required");
