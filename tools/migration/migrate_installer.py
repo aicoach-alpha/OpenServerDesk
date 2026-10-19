@@ -5,7 +5,7 @@ from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
 from m1_fixture_activation import execute as fixture_execute
-from full_app_recovery import snapshot as app_snapshot, restore as app_restore
+from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture
 
 def sha256(p):
     return backup.digest(p)
@@ -51,22 +51,40 @@ def main():
     p.add_argument("--app-fixture-action", choices=("snapshot", "restore"),
                    help="multi-project isolated staging snapshot/restore only")
     p.add_argument("--app-fixture", type=Path)
+    p.add_argument("--checkpoint", action="store_true",
+                   help="read-only combined fixture checkpoint; no production actions")
     p.add_argument("--backup",type=Path)
     p.add_argument("--candidate",type=Path)
     p.add_argument("--report",type=Path)
     args=p.parse_args()
-    if args.app_fixture_action:
+    if args.checkpoint:
+        if (args.app_fixture_action or args.fixture_action or not args.app_fixture
+                or not args.fixture_target or args.fixture_bundle or args.backup
+                or args.candidate):
+            p.error("checkpoint requires --fixture-target and --app-fixture only")
+        from m1_fixture_activation import status as fixture_status
+        target_status = fixture_status(args.fixture_target)
+        root = root_fixture(args.app_fixture)
+        bundle = root / "bundle"
+        recovered = root / "recovered"
+        app_state = ("RESTORED" if recovered.is_dir() and not recovered.is_symlink()
+                     else "SNAPSHOT_AVAILABLE" if bundle.is_dir() and not bundle.is_symlink()
+                     else "NO_SNAPSHOT")
+        result = {"scope": "STAGING_FIXTURE_CHECKPOINT_ONLY",
+                  "service": target_status, "applications": app_state,
+                  "migration_allowed": False, "production_modified": False}
+    elif args.app_fixture_action:
         if (not args.app_fixture or args.fixture_action or args.fixture_target
                 or args.fixture_bundle or args.backup or args.candidate):
             p.error("app fixture mode requires --app-fixture only")
         result = (app_snapshot(args.app_fixture) if args.app_fixture_action == "snapshot"
                   else app_restore(args.app_fixture))
     elif args.fixture_action:
-        if args.backup or args.candidate or not args.fixture_target:
+        if args.backup or args.candidate or args.app_fixture or not args.fixture_target:
             p.error("fixture mode requires --fixture-target and forbids --backup/--candidate")
         result = fixture_execute(args.fixture_action, args.fixture_target, args.fixture_bundle)
     else:
-        if args.fixture_target or args.fixture_bundle or args.app_fixture:
+        if args.fixture_target or args.fixture_bundle or args.app_fixture or args.app_fixture_action:
             p.error("fixture arguments require --fixture-action")
         if not args.backup:
             p.error("--backup required for production read-only preflight")
