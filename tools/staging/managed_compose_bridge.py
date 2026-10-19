@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "server"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from stage_apps import enabled, list_apps, AppError
+from stage_compose import list_projects
 from synthetic_compose_rehearsal import translate_stage_resources
 from compose_semantics import isolated_deployment_plan
 
@@ -34,6 +35,11 @@ def report(doc):
             apps = list_apps()
             result["registered_stage_apps"] = len(apps["apps"])
             result["running_stage_apps"] = sum(bool(a["running"]) for a in apps["apps"])
+            compose = list_projects()
+            result["registered_stage_compose_projects"] = len(compose["projects"])
+            result["running_stage_compose_projects"] = sum(
+                bool(p["running"]) for p in compose["projects"])
+            result["stage_compose_management_integrated"] = True
         except AppError:
             result["stage_inventory_available"] = False
     return result
