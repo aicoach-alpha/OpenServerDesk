@@ -173,6 +173,31 @@ def execute_isolated(doc):
                     text=True, timeout=20)
                 if read.returncode or read.stdout != "osd-stage-marker":
                     raise RuntimeError("isolated fixture persistence did not survive restart")
+            # Snapshot, delete, and restore synthetic marker only. The
+            # snapshot is inside the ephemeral staging directory, never a
+            # source app bind mount or user-data backup.
+            for index, cid in enumerate(after.stdout.splitlines()):
+                snapshot = Path(tmp) / f"fixture-marker-{index}"
+                backup = subprocess.run(["docker", "cp",
+                    f"{cid}:/fixture-persistent/marker", str(snapshot)],
+                    capture_output=True, text=True, timeout=20)
+                if backup.returncode or snapshot.read_bytes() != b"osd-stage-marker":
+                    raise RuntimeError("synthetic fixture snapshot failed")
+                remove = subprocess.run(["docker", "exec", "--user", "0:0",
+                    cid, "rm", "/fixture-persistent/marker"],
+                    capture_output=True, text=True, timeout=20)
+                if remove.returncode:
+                    raise RuntimeError("synthetic fixture marker removal failed")
+                restore = subprocess.run(["docker", "cp", str(snapshot),
+                    f"{cid}:/fixture-persistent/marker"],
+                    capture_output=True, text=True, timeout=20)
+                if restore.returncode:
+                    raise RuntimeError("synthetic fixture restore failed")
+                verify = subprocess.run(["docker", "exec", cid, "cat",
+                    "/fixture-persistent/marker"], capture_output=True,
+                    text=True, timeout=20)
+                if verify.returncode or verify.stdout != "osd-stage-marker":
+                    raise RuntimeError("synthetic fixture restored marker mismatch")
             # Verify actual staging resources, not just Compose declarations.
             ids = subprocess.run(base + ["ps", "-q"], capture_output=True,
                                  text=True, timeout=20)
@@ -200,6 +225,7 @@ def execute_isolated(doc):
                     "runtime_resource_guards_verified": True,
                     "stop_start_lifecycle_verified": True,
                     "synthetic_volume_persistence_verified": True,
+                    "synthetic_snapshot_restore_verified": True,
                     "synthetic_environment": True,
                     "translated_resource_counts": resource_counts,
                     "real_app_imports_verified": 0,
