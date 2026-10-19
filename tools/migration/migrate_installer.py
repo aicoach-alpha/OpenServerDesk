@@ -5,7 +5,7 @@ from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
 from m1_fixture_activation import execute as fixture_execute
-from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture, scan as app_scan, projects as app_projects, owner as app_owner
+from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture, scan as app_scan, projects as app_projects, owner as app_owner, quiesced as app_quiesced
 
 def sha256(p):
     return backup.digest(p)
@@ -115,6 +115,12 @@ def orchestrate_fixture(target, bundle, app_root):
             before["applications"] not in ("SNAPSHOT_AVAILABLE", "RESTORED") or
             before["application_integrity"] != "VERIFIED"):
         raise RuntimeError("verified app snapshot and idle service fixture required")
+    # Require an actual staging owner and no active stage-owned Docker
+    # writer immediately before activation. This does not stop containers.
+    root = root_fixture(app_root)
+    stage_owner = app_quiesced(root)
+    if stage_owner != app_owner(root):
+        raise RuntimeError("stage ownership changed during quiescence check")
     try:
         fixture_execute("activate", target, bundle)
         after = checkpoint_integrity(target, app_root)
@@ -124,6 +130,7 @@ def orchestrate_fixture(target, bundle, app_root):
             raise RuntimeError("post-activation checkpoint integrity failed")
         return {"scope": "STAGING_FIXTURE_ORCHESTRATION_ONLY",
                 "result": "ACTIVATED_WITH_UNDO", "checkpoint": after,
+                "stage_owner": stage_owner, "stage_writer_quiesced": True,
                 "migration_allowed": False, "production_modified": False}
     except Exception:
         # If activation raised after journaling but before returning, the
