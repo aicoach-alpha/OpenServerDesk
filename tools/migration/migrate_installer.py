@@ -5,7 +5,7 @@ from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
 from m1_fixture_activation import execute as fixture_execute
-from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture
+from full_app_recovery import snapshot as app_snapshot, restore as app_restore, root_fixture, scan as app_scan, projects as app_projects
 
 def sha256(p):
     return backup.digest(p)
@@ -42,6 +42,64 @@ def gate(archive, candidate=None):
             "activation_implemented":False,
             "rollback_implemented":False,
             "note":"Fails closed: requires signed candidate, isolated install rehearsal, and tested rollback before activation"}
+def checkpoint_integrity(target, app_root):
+    """Verify fixture manifests and content; never access live production paths."""
+    from m1_fixture_activation import status as fixture_status
+    from journaled_pair import digest as pair_digest
+    target_status = fixture_status(target)
+    target = Path(target).resolve()
+    if target_status["state"] == "ROLLBACK_AVAILABLE":
+        journal = target / ".osd-undo"
+        try:
+            manifest = json.loads((journal / "manifest.json").read_text())
+            if set(manifest) != {"userservice", "user.db"}:
+                raise ValueError("unexpected undo manifest")
+            if any((journal / name).is_symlink() or
+                   pair_digest(journal / name) != expected
+                   for name, expected in manifest.items()):
+                raise ValueError("undo checksum mismatch")
+            target_status["journal_integrity"] = "VERIFIED"
+        except (OSError, ValueError, TypeError, KeyError):
+            target_status["journal_integrity"] = "INVALID"
+            target_status["activation_allowed"] = False
+    root = root_fixture(app_root)
+    bundle = root / "bundle"
+    recovered = root / "recovered"
+    app_state = "NO_SNAPSHOT"
+    app_integrity = "NOT_AVAILABLE"
+    if bundle.exists() or bundle.is_symlink():
+        app_state = "SNAPSHOT_AVAILABLE"
+        try:
+            if bundle.is_symlink() or not bundle.is_dir():
+                raise ValueError("invalid bundle")
+            manifest_path = bundle / "manifest.json"
+            if manifest_path.is_symlink():
+                raise ValueError("symlinked manifest")
+            doc = json.loads(manifest_path.read_text())
+            if (set(doc) != {"format", "owner", "projects"} or doc["format"] != 1
+                    or not isinstance(doc["projects"], dict) or not doc["projects"]):
+                raise ValueError("invalid manifest")
+            entries = app_projects(bundle / "data")
+            if {p.name: app_scan(p) for p in entries} != doc["projects"]:
+                raise ValueError("snapshot checksum mismatch")
+            app_integrity = "VERIFIED"
+            if recovered.exists() or recovered.is_symlink():
+                if recovered.is_symlink() or not recovered.is_dir():
+                    raise ValueError("invalid recovered tree")
+                restored = app_projects(recovered)
+                if {p.name: app_scan(p) for p in restored} != doc["projects"]:
+                    raise ValueError("recovery checksum mismatch")
+                app_state = "RESTORED"
+        except (OSError, ValueError, TypeError, KeyError):
+            app_integrity = "INVALID"
+    elif recovered.exists() or recovered.is_symlink():
+        app_state = "ORPHAN_RECOVERY"
+        app_integrity = "INVALID"
+    return {"scope": "STAGING_FIXTURE_CHECKPOINT_ONLY",
+            "service": target_status, "applications": app_state,
+            "application_integrity": app_integrity,
+            "migration_allowed": False, "production_modified": False}
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--fixture-action", choices=("status", "activate", "rollback"),
@@ -62,17 +120,7 @@ def main():
                 or not args.fixture_target or args.fixture_bundle or args.backup
                 or args.candidate):
             p.error("checkpoint requires --fixture-target and --app-fixture only")
-        from m1_fixture_activation import status as fixture_status
-        target_status = fixture_status(args.fixture_target)
-        root = root_fixture(args.app_fixture)
-        bundle = root / "bundle"
-        recovered = root / "recovered"
-        app_state = ("RESTORED" if recovered.is_dir() and not recovered.is_symlink()
-                     else "SNAPSHOT_AVAILABLE" if bundle.is_dir() and not bundle.is_symlink()
-                     else "NO_SNAPSHOT")
-        result = {"scope": "STAGING_FIXTURE_CHECKPOINT_ONLY",
-                  "service": target_status, "applications": app_state,
-                  "migration_allowed": False, "production_modified": False}
+        result = checkpoint_integrity(args.fixture_target, args.app_fixture)
     elif args.app_fixture_action:
         if (not args.app_fixture or args.fixture_action or args.fixture_target
                 or args.fixture_bundle or args.backup or args.candidate):
