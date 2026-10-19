@@ -112,10 +112,8 @@ def orchestrate_fixture(target, bundle, app_root):
             before["applications"] not in ("SNAPSHOT_AVAILABLE", "RESTORED") or
             before["application_integrity"] != "VERIFIED"):
         raise RuntimeError("verified app snapshot and idle service fixture required")
-    changed = False
     try:
         fixture_execute("activate", target, bundle)
-        changed = True
         after = checkpoint_integrity(target, app_root)
         if (after["service"]["state"] != "ROLLBACK_AVAILABLE" or
                 after["service"].get("journal_integrity") != "VERIFIED" or
@@ -127,8 +125,27 @@ def orchestrate_fixture(target, bundle, app_root):
     except Exception:
         # If activation raised after journaling but before returning, the
         # durable journal may still exist; recover only when verified.
-        state = checkpoint_integrity(target, app_root)["service"]
-        if state["state"] == "ROLLBACK_AVAILABLE" and state.get("journal_integrity") == "VERIFIED":
+        # Recovery must not depend on the application checkpoint remaining
+        # readable: that is often the very reason activation failed.
+        # Use only the isolated service journal's own integrity proof.
+        from m1_fixture_activation import status as fixture_status
+        from journaled_pair import digest as pair_digest
+        state = fixture_status(target)
+        if state["state"] == "ROLLBACK_AVAILABLE":
+            journal = Path(target).resolve() / ".osd-undo"
+            try:
+                manifest_file = journal / "manifest.json"
+                if manifest_file.is_symlink():
+                    raise ValueError("symlinked undo manifest")
+                manifest = json.loads(manifest_file.read_text())
+                if set(manifest) != {"userservice", "user.db"}:
+                    raise ValueError("unexpected undo manifest")
+                for name, expected in manifest.items():
+                    source = journal / name
+                    if source.is_symlink() or pair_digest(source) != expected:
+                        raise ValueError("corrupted undo journal")
+            except (OSError, ValueError, TypeError, KeyError) as err:
+                raise RuntimeError("automatic rollback blocked: unsafe undo journal") from err
             fixture_execute("rollback", target)
         raise
 
