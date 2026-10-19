@@ -161,6 +161,10 @@ function stageButton(text, disabled, callback) {
   b.addEventListener("click", callback);
   return b;
 }
+async function updateUnifiedInventoryAfterAction() {
+  try { await unifiedStageInventoryRefresh(); }
+  catch(err) { $("stage-unified-summary").textContent="Unified inventory: "+err.message; }
+}
 async function unifiedStageInventoryRefresh() {
   if (!stageToken) return;
   const response=await fetch("/api/v1/stage/unified-inventory",{
@@ -938,6 +942,7 @@ async function appstorePilotRefresh() {
             $("appstore-pilot-status").textContent="Running "+action+"…";
             await appstorePilotRequest("POST",{action,project:app.project});
             await appstorePilotRefresh();
+            await updateUnifiedInventoryAfterAction();
           } catch(err) {
             $("appstore-pilot-status").textContent=err.message;
           }
@@ -960,6 +965,7 @@ $("appstore-pilot-install").addEventListener("click",async()=>{
   try {
     await appstorePilotRequest("POST",{action:"install",id:"default:MySpeed"});
     await appstorePilotRefresh();
+    await updateUnifiedInventoryAfterAction();
   } catch(err) {
     $("appstore-pilot-status").textContent=err.message;
     $("appstore-pilot-install").disabled=!stageCanWrite;
@@ -1027,6 +1033,7 @@ async function storeGeneralRefresh() {
             $("store-general-status").textContent="Staging "+op+" in progress…";
             await storeGeneralApi("POST",{action:op,project:entry.project});
             await storeGeneralRefresh();
+            await updateUnifiedInventoryAfterAction();
           }catch(err){$("store-general-status").textContent=err.message;}
         });
         row.append(btn);
@@ -1050,6 +1057,7 @@ $("store-general-install").addEventListener("click",async()=>{
   try{
     await storeGeneralApi("POST",{action:"install",id:appId});
     await storeGeneralRefresh();
+    await updateUnifiedInventoryAfterAction();
   }catch(err){
     $("store-general-status").textContent=err.message;
   }finally{
