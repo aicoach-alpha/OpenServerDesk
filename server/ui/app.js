@@ -190,6 +190,22 @@ async function unifiedStageInventoryRefresh() {
     cell(tr,app.source);cell(tr,app.name);cell(tr,app.project||"—");
     const state=cell(tr,app.running?"running":"stopped");
     state.className=app.running?"running":"inactive";
+    const destinations={
+      docker:"stage-apps-list",
+      compose:"stage-compose-list",
+      store_pilot:"appstore-pilot-apps",
+      store_general:"store-general-list"
+    };
+    const actionCell=document.createElement("td");
+    const go=stageButton("Manage",false,()=>{
+      const target=$(destinations[app.source]);
+      target.scrollIntoView({behavior:"smooth",block:"center"});
+      target.setAttribute("tabindex","-1");
+      target.focus({preventScroll:true});
+    });
+    go.setAttribute("aria-label","Manage "+app.name+" in "+app.source+" staging");
+    actionCell.appendChild(go);
+    tr.appendChild(actionCell);
     rows.push(tr);
   }
   tbody.replaceChildren(...rows);
