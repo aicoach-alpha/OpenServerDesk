@@ -155,7 +155,8 @@ def stage_runtime_probe():
     if readiness.get("migration_allowed") is not False:
         raise RuntimeError("staging runtime unexpectedly permits production migration")
     return {"endpoint": endpoint, "service": "openserverdesk",
-            "environment": "staging", "migration_allowed": False}
+            "environment": "staging", "version": health.get("version"),
+            "migration_allowed": False}
 
 
 def orchestrate_fixture(target, bundle, app_root, candidate=None, probe_runtime=False):
@@ -173,6 +174,8 @@ def orchestrate_fixture(target, bundle, app_root, candidate=None, probe_runtime=
     runtime = stage_runtime_probe() if probe_runtime else None
     package = candidate_identity(candidate) if candidate is not None else None
     signature = verified_stage_release(candidate) if candidate is not None else None
+    if runtime is not None and package is not None and runtime["version"] != package["version"]:
+        raise RuntimeError("staging runtime version does not match signed candidate")
     # Require an actual staging owner and no active stage-owned Docker
     # writer immediately before activation. This does not stop containers.
     root = root_fixture(app_root)
