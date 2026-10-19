@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from acceptance_m1_compose_compat import CONFIG, safe_project_config
-from compose_semantics import assess_config
+from compose_semantics import assess_config, isolated_deployment_plan
 
 OUTPUT_ROOT = Path("/opt/openserverdesk-dev/runtime-stage")
 SERVICE_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}\Z")
@@ -72,6 +72,9 @@ def execute_isolated(doc):
     project name prevents touching any existing Compose application.
     """
     config, _ = synthetic(doc)
+    # Reuse the strict dependency planner for eligible stage-safe projects;
+    # source Compose resources are still discarded by synthetic().
+    plan = isolated_deployment_plan(doc)
     project = "osd-m1-fixture-" + secrets.token_hex(6)
     with tempfile.TemporaryDirectory(prefix="osd-exec-", dir=OUTPUT_ROOT) as tmp:
         path = Path(tmp) / "compose.json"
@@ -90,6 +93,7 @@ def execute_isolated(doc):
                 raise RuntimeError("isolated synthetic services not all running")
             return {"scope": "SYNTHETIC_COMPOSE_EXECUTION_ONLY",
                     "synthetic_services_running": len(config["services"]),
+                    "dependency_order": plan["service_order"],
                     "real_app_imports_verified": 0,
                     "production_modified": False}
         finally:
