@@ -25,13 +25,19 @@ def inventory():
             app_name = entry.get("app_id") or entry.get("name") or entry.get("project")
             if not isinstance(app_name, str) or not app_name:
                 raise ValueError("invalid_stage_application_identity")
+            running = entry.get("running")
+            if not isinstance(running, bool):
+                raise ValueError("invalid_stage_running_state")
+            # Stopped containers cannot serve requests. Running alone does
+            # not prove health, so readiness remains explicitly unverified.
+            readiness = "not_verified" if running else "not_ready"
             applications.append({
                 "source": name,
                 "name": app_name,
                 "project": entry.get("project") if isinstance(entry.get("project"), str) else None,
-                "running": bool(entry.get("running", False)),
-                "lifecycle": "running" if entry.get("running", False) else "stopped",
-                "readiness": "not_verified",
+                "running": running,
+                "lifecycle": "running" if running else "stopped",
+                "readiness": readiness,
             })
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,

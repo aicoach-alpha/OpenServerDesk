@@ -189,14 +189,14 @@ async function unifiedStageInventoryRefresh() {
     if (!expected.includes(app.source) || typeof app.name!=="string" ||
         typeof app.running!=="boolean" ||
         app.lifecycle!==(app.running?"running":"stopped") ||
-        app.readiness!=="not_verified" ||
+        app.readiness!==(app.running?"not_verified":"not_ready") ||
         (app.project!==null && typeof app.project!=="string"))
       throw Error("Invalid staged application record");
     const tr=document.createElement("tr");
     cell(tr,app.source);cell(tr,app.name);cell(tr,app.project||"—");
     const state=cell(tr,app.running?"running":"stopped");
     state.className=app.running?"running":"inactive";
-    cell(tr,"Not verified");
+    cell(tr,app.readiness==="not_ready"?"Not ready":"Not verified");
     const destinations={
       docker:"stage-apps-list",
       compose:"stage-compose-list",
