@@ -5,6 +5,7 @@ this feature require a disk-held capability AND double-check persisted full
 container ID and immutable Docker owner labels before *each* action.
 """
 from __future__ import annotations
+from stage_container_health import status as stage_health_status
 import fcntl
 import hashlib
 import hmac
@@ -164,6 +165,7 @@ def inspect_owned(name, ident, owner):
     return {'id': ident[:12], 'name': name,
             'image': cfg.get('Image'), 'running': bool(state.get('Running', False)),
             'state': str(state.get('Status', 'unknown'))[:60],
+            'health_status': stage_health_status(state),
             'isolated': True}
 
 

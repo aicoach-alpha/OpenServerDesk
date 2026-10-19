@@ -1,4 +1,5 @@
 """Authenticated staging-only inventory aggregation; never mutates Docker."""
+from stage_container_health import readiness as health_readiness
 from stage_apps import list_apps
 from stage_compose import list_projects
 from stage_store_installer import list_installs
@@ -28,9 +29,10 @@ def inventory():
             running = entry.get("running")
             if not isinstance(running, bool):
                 raise ValueError("invalid_stage_running_state")
-            # Stopped containers cannot serve requests. Running alone does
-            # not prove health, so readiness remains explicitly unverified.
-            readiness = "not_verified" if running else "not_ready"
+            # Docker's own healthcheck is authoritative only for its
+            # configured probe, not for external service reachability.
+            health_status = entry.get("health_status", "not_configured")
+            readiness = health_readiness(running, health_status)
             applications.append({
                 "source": name,
                 "name": app_name,
@@ -38,6 +40,7 @@ def inventory():
                 "running": running,
                 "lifecycle": "running" if running else "stopped",
                 "readiness": readiness,
+                "health_status": health_status,
             })
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,

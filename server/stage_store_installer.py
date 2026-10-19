@@ -5,6 +5,7 @@ Never execute the original Compose payload. Never mount original host bind
 paths, Nextcloud user HDD, Docker socket, or publish host ports.
 """
 from __future__ import annotations
+from stage_container_health import status as stage_health_status
 import json
 import os
 import re
@@ -135,6 +136,7 @@ def _inspect(project,entry):
     state=obj.get("State") or {}
     return {"project":project,"app_id":APP_ID,"image":IMAGE,
             "running":bool(state.get("Running")),
+            "health_status":stage_health_status(state),
             "state":"running" if state.get("Running") else "stopped",
             "isolated":True,"production_mutation_allowed":False}
 

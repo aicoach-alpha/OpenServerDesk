@@ -5,6 +5,7 @@ ports, no network, no privileged/container socket, only stage-owned binds.
 Actual CasaOS containers and user data are never targeted for mutation.
 """
 from __future__ import annotations
+from stage_container_health import status as stage_health_status
 import json
 import os
 import re
@@ -165,6 +166,7 @@ def _inspect(project, entry):
         "project": project, "template": entry["template"],
         "container_id": entry["id"][:12],
         "running": bool(state.get("Running")),
+        "health_status": stage_health_status(state),
         "isolated": True, "production_mutation_allowed": False,
     }
 

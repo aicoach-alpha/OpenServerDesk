@@ -7,6 +7,7 @@ and only remapped stage-owned volume directories. Never operates on a
 CasaOS production container or the user's external HDD.
 """
 from __future__ import annotations
+from stage_container_health import status as stage_health_status
 import json
 import os
 import re
@@ -226,6 +227,7 @@ def _container(project, record):
     status=obj.get("State") or {}
     return {"project":project,"id":ident[:12],"app_id":record["app_id"],
             "image":record["image"],"running":bool(status.get("Running")),
+            "health_status":stage_health_status(status),
             "staging_only":True,"production_mutation_allowed":False}
 
 def listing():
