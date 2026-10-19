@@ -4,6 +4,7 @@ import argparse, hashlib, json, os, subprocess
 from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
+from m1_fixture_activation import execute as fixture_execute
 
 def sha256(p):
     return backup.digest(p)
@@ -42,11 +43,24 @@ def gate(archive, candidate=None):
             "note":"Fails closed: requires signed candidate, isolated install rehearsal, and tested rollback before activation"}
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("--backup",required=True,type=Path)
+    p.add_argument("--fixture-action", choices=("status", "activate", "rollback"),
+                   help="disposable temporary fixture only; never performs production cutover")
+    p.add_argument("--fixture-target", type=Path)
+    p.add_argument("--fixture-bundle", type=Path)
+    p.add_argument("--backup",type=Path)
     p.add_argument("--candidate",type=Path)
     p.add_argument("--report",type=Path)
     args=p.parse_args()
-    result=gate(args.backup,args.candidate)
+    if args.fixture_action:
+        if args.backup or args.candidate or not args.fixture_target:
+            p.error("fixture mode requires --fixture-target and forbids --backup/--candidate")
+        result = fixture_execute(args.fixture_action, args.fixture_target, args.fixture_bundle)
+    else:
+        if args.fixture_target or args.fixture_bundle:
+            p.error("fixture arguments require --fixture-action")
+        if not args.backup:
+            p.error("--backup required for production read-only preflight")
+        result=gate(args.backup,args.candidate)
     text=json.dumps(result,indent=2)
     if args.report:
         args.report.parent.mkdir(parents=True,exist_ok=True)
