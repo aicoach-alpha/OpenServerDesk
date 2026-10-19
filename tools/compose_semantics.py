@@ -102,6 +102,33 @@ def assess_config(doc):
         "synthetic_replay_only":True,
     }
 
+def isolated_deployment_plan(doc):
+    """Build a no-exec stage plan; refuse unsafe resources, never read binds."""
+    summary = assess_config(doc)
+    if (summary["unknown_compose_field_kinds"]
+            or summary["sandbox_replay_restricted_field_kinds"]
+            or summary["invalid_dependency_conditions"]):
+        raise ValueError("Compose requires isolated resource translation before replay")
+    services = doc["services"]
+    edges = {}
+    for name, cfg in services.items():
+        dep = cfg.get("depends_on") or []
+        edges[name] = sorted(dep if isinstance(dep, list) else dep.keys())
+    ordered, seen = [], set()
+    def visit(name):
+        if name in seen:
+            return
+        for parent in edges[name]:
+            visit(parent)
+        seen.add(name)
+        ordered.append(name)
+    for name in sorted(edges):
+        visit(name)
+    return {"scope": "ISOLATED_STAGE_PLAN_ONLY", "service_order": ordered,
+            "service_count": len(ordered), "docker_executed": False,
+            "production_modified": False}
+
+
 def catalog():
     from acceptance_m1_compose_compat import CONFIG,safe_project_config
     if not CONFIG.is_dir() or CONFIG.is_symlink():
