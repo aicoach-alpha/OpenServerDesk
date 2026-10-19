@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """M1.4 in-place migration installer pre-activation gate. No production mutations."""
-import argparse, hashlib, json, os, subprocess
+import argparse, hashlib, importlib.util, json, os, subprocess
 from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
@@ -120,6 +120,24 @@ def candidate_identity(candidate):
             "architecture": fields[2], "sha256": sha256(candidate)}
 
 
+def verified_stage_release(candidate):
+    """Bind a candidate to the existing staging Ed25519 manifest verifier."""
+    signing = Path(__file__).resolve().parents[1] / "release/stage_artifact_signing_0651.py"
+    spec = importlib.util.spec_from_file_location("osd_stage_signing", signing)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("staging signature verifier unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if Path(candidate).resolve(strict=True) != module.PACKAGE.resolve(strict=True):
+        raise ValueError("candidate is not the signed staging release")
+    proof = module.verify()
+    if (proof.get("status") != "STAGING_ED25519_MANIFEST_SIGNATURE_VERIFIED"
+            or proof.get("production_release_approved") is not False
+            or proof.get("package_sha256") != sha256(candidate)):
+        raise ValueError("signed staging release proof mismatch")
+    return proof
+
+
 def orchestrate_fixture(target, bundle, app_root, candidate=None):
     """Activate disposable fixture only after a verified app snapshot.
 
@@ -133,6 +151,7 @@ def orchestrate_fixture(target, bundle, app_root, candidate=None):
             before["application_integrity"] != "VERIFIED"):
         raise RuntimeError("verified app snapshot and idle service fixture required")
     package = candidate_identity(candidate) if candidate is not None else None
+    signature = verified_stage_release(candidate) if candidate is not None else None
     # Require an actual staging owner and no active stage-owned Docker
     # writer immediately before activation. This does not stop containers.
     root = root_fixture(app_root)
@@ -149,7 +168,7 @@ def orchestrate_fixture(target, bundle, app_root, candidate=None):
         return {"scope": "STAGING_FIXTURE_ORCHESTRATION_ONLY",
                 "result": "ACTIVATED_WITH_UNDO", "checkpoint": after,
                 "stage_owner": stage_owner, "stage_writer_quiesced": True,
-                "candidate": package,
+                "candidate": package, "staging_signature": signature,
                 "migration_allowed": False, "production_modified": False}
     except Exception:
         # If activation raised after journaling but before returning, the
