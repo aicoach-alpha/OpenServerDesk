@@ -132,6 +132,23 @@ def execute_isolated(doc):
                                 capture_output=True, text=True, timeout=20)
             if ps.returncode or set(ps.stdout.splitlines()) != set(config["services"]):
                 raise RuntimeError("isolated synthetic services not all running")
+            # Exercise a real lifecycle transition on this unique fixture only.
+            stop = subprocess.run(base + ["stop"], capture_output=True,
+                                  text=True, timeout=45)
+            if stop.returncode:
+                raise RuntimeError("isolated fixture stop failed")
+            stopped = subprocess.run(base + ["ps", "--status", "running", "--services"],
+                                     capture_output=True, text=True, timeout=20)
+            if stopped.returncode or stopped.stdout.strip():
+                raise RuntimeError("isolated fixture did not stop cleanly")
+            restart = subprocess.run(base + ["start"], capture_output=True,
+                                     text=True, timeout=45)
+            if restart.returncode:
+                raise RuntimeError("isolated fixture restart failed")
+            resumed = subprocess.run(base + ["ps", "--status", "running", "--services"],
+                                     capture_output=True, text=True, timeout=20)
+            if resumed.returncode or set(resumed.stdout.splitlines()) != set(config["services"]):
+                raise RuntimeError("isolated fixture did not resume")
             # Verify actual staging resources, not just Compose declarations.
             ids = subprocess.run(base + ["ps", "-q"], capture_output=True,
                                  text=True, timeout=20)
@@ -157,6 +174,7 @@ def execute_isolated(doc):
                     "isolated_network": True,
                     "ephemeral_tmpfs": True,
                     "runtime_resource_guards_verified": True,
+                    "stop_start_lifecycle_verified": True,
                     "synthetic_environment": True,
                     "translated_resource_counts": resource_counts,
                     "real_app_imports_verified": 0,
