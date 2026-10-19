@@ -183,6 +183,17 @@ def delete_checkpoint(project,manifest,name):
         entry=project_root/file
         if entry.exists() or entry.is_symlink():
             raise AppError("stage_checkpoint_in_use_by_recovery",409)
+    linked=project_root/"previous-data.json"
+    if linked.is_symlink():
+        raise AppError("unsafe_stage_version_link",403)
+    if linked.exists():
+        if not linked.is_file() or linked.stat().st_size>1024:
+            raise AppError("unsafe_stage_version_link",403)
+        try:doc=json.loads(linked.read_text())
+        except (ValueError,OSError):
+            raise AppError("unsafe_stage_version_link",403)
+        if isinstance(doc,dict) and doc.get("checkpoint")==name:
+            raise AppError("stage_checkpoint_pinned_for_rollback",409)
     root=_checkpoints(project)
     snapshot=root/name
     if (snapshot.is_symlink() or not snapshot.is_dir()

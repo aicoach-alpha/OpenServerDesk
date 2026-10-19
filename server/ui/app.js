@@ -1091,7 +1091,9 @@ async function compiledRefresh(){
       cell(row,app.app_id+" · "+app.project);
       cell(row,app.services.map(x=>x.name+":"+(x.running?"running":
         (x.status==="exited"?"exited (code "+String(x.exit_code)+")":"stopped"))).join(", "));
-      cell(row,String(app.revision)+(app.outbound_network_pilot?
+      cell(row,String(app.revision)+(app.application_data_rollback?
+        " · configuration + data rollback ready":" · no linked data rollback")+
+        (app.outbound_network_pilot?
         " · outbound staging bridge (not LAN-isolated)":" · internal-only staging bridge")+
         (app.web_url?" · server loopback: "+app.web_url:""));
       const controls=document.createElement("td");

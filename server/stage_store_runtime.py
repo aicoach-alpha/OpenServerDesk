@@ -416,7 +416,10 @@ def _summary(project,entry):
             "all_running":all(x["running"] for x in services.values()),
             "outbound_network_pilot":_network_contract(manifest)[0]=="egress" if "networks" in manifest else False,
             "image_configuration_rollback":True,
-            "application_data_rollback":False,
+            "application_data_rollback":(
+                _read(_version_link(project),None) is not None),
+            "revision_data_checkpoint":(
+                (_read(_version_link(project),None) or {}).get("checkpoint")),
             "manual_stage_volume_backup_restore":True,
             "data_checkpoints":data_listing(project,manifest),
             "data_recovery_pending":(_folder(project)/"data-restore-pending.json").exists(),
@@ -506,6 +509,127 @@ def _online_data(project,manifest,entry,services,action,checkpoint):
         # Leave a durable journal. No blind automatic retry after a crash.
         raise AppError("stage_online_data_requires_recovery",503) from err
 
+def _manifest_sha(manifest):
+    return hashlib.sha256(json.dumps(manifest,sort_keys=True,
+                                     separators=(",",":")).encode("utf-8")).hexdigest()
+
+def _version_link(project):
+    return _file(_folder(project)/"previous-data.json")
+
+def _check_version_link(project,target,doc):
+    if (not isinstance(doc,dict) or set(doc)!={"manifest_sha256","checkpoint"}
+            or doc.get("manifest_sha256")!=_manifest_sha(target)):
+        raise AppError("stage_previous_data_link_missing_or_mismatched",409)
+    # Enforce manifest and database integrity before stopping ANY container.
+    _data_validate(project,target,doc["checkpoint"])
+    return doc["checkpoint"]
+
+def _recover_versioned(project,entry,state,values,journal):
+    """Restore pre-operation config and exact pre-operation staging bytes.
+
+    Any unproven/mixed container identity halts without touching it.
+    """
+    old=state.get("old")
+    target=state.get("target")
+    backup=state.get("backup")
+    running=state.get("running")
+    owner=entry.get("owner")
+    if (not isinstance(old,dict) or not isinstance(target,dict)
+            or not isinstance(owner,str) or not OWNER.fullmatch(owner)
+            or type(state.get("revision")) is not int
+            or not isinstance(running,list)
+            or len(running)!=len(set(running))
+            or any(not isinstance(n,str) or n not in old.get("services",{}) for n in running)):
+        raise AppError("invalid_stage_version_recovery_journal",503)
+    _validate(project,old,owner)
+    _validate(project,target,owner)
+    if backup is not None:
+        _data_validate(project,old,backup)
+    # Enforce provenance for ALL containers before stop, using either
+    # the exact old or exact new immutable manifest, never project label alone.
+    verified=None
+    for spec in (target,old):
+        try:
+            verified=_verify_partial(project,spec,owner)
+            break
+        except AppError:
+            continue
+    if verified is None:
+        raise AppError("stage_version_recovery_unverified_containers",403)
+    for ident in verified:
+        docker("stop","--time","3",ident)
+    if backup is not None:
+        _data_apply(project,old,backup)
+    _atomic(_compose_path(project),old)
+    _up(project)
+    _resume_online(project,old,owner,set(running))
+    previous=_file(_folder(project)/"previous.json")
+    prior=state.get("prior")
+    prior_data=state.get("prior_data")
+    if prior is None:
+        previous.unlink(missing_ok=True)
+    else:
+        _atomic(previous,prior)
+    if prior_data is None:
+        _version_link(project).unlink(missing_ok=True)
+    else:
+        _atomic(_version_link(project),prior_data)
+    entry["revision"]=state["revision"]
+    _atomic(STATE,values)
+    journal.unlink()
+    return {"operation":"recovered_version_with_data",
+            "restored_checkpoint":backup,
+            "application_data_rollback":backup is not None,
+            "production_mutation_allowed":False}
+
+def _versioned_change(project,entry,values,manifest,services,action,target,journal,previous):
+    """Quiesce, checkpoint, replace config, and link exact pre-update data."""
+    owner=entry["owner"]
+    running=sorted(name for name,s in services.items() if s["running"])
+    previous_data=_version_link(project)
+    prior=_read(previous,None)
+    prior_data=_read(previous_data,None)
+    rollback_cp=None
+    if action=="rollback":
+        rollback_cp=_check_version_link(project,target,prior_data)
+    # Unmodified startup/read-only inspection before durable mutation.
+    record={"version":2,"operation":action,"old":manifest,"target":target,
+            "revision":entry["revision"],"running":running,
+            "backup":None,"prior":prior,"prior_data":prior_data}
+    _atomic(journal,record)
+    try:
+        _stop_for_online(services)
+        if any(item["running"] for item in _owned(project,manifest,owner).values()):
+            raise AppError("stage_version_stop_incomplete",503)
+        record["backup"]=_data_save(project,manifest)
+        _atomic(journal,record)
+        if rollback_cp is not None:
+            # Restore linked DB snapshot while old containers are stopped.
+            _data_apply(project,target,rollback_cp)
+        _atomic(_compose_path(project),target)
+        _up(project)
+        _resume_online(project,target,owner,set(running))
+        # New rollback link always references the configuration and data
+        # that existed immediately before this particular version change.
+        _atomic(previous,manifest)
+        _atomic(previous_data,{"checkpoint":record["backup"],
+                               "manifest_sha256":_manifest_sha(manifest)})
+        entry["revision"]+=1
+        _atomic(STATE,values)
+        journal.unlink()
+        return {"operation":action,"data_checkpoint":record["backup"],
+                "data_restored":rollback_cp is not None,
+                "application_data_rollback":True,
+                "production_mutation_allowed":False,
+                "app":_summary(project,entry)}
+    except Exception as err:
+        try:
+            outcome=_recover_versioned(project,entry,record,values,journal)
+        except Exception as failed:
+            # Retain the durable journal for explicit operator recovery.
+            raise AppError("stage_version_change_requires_recovery",503) from failed
+        raise AppError("stage_version_change_failed_original_and_data_restored",503) from err
+
 def listing():
     with guarded():
         root=_root()
@@ -516,11 +640,11 @@ def listing():
                 if j.is_file() or j.is_symlink():
                     pending.append(child.name)
         values=_projects()
-        return {"apps":[_summary(p,e) for p,e in sorted(values.items())
-                        if p not in pending],
+        apps=[_summary(p,e) for p,e in sorted(values.items()) if p not in pending]
+        return {"apps":apps,
                 "pending_recovery":sorted(pending),
                 "scope":"isolated_compiled_appstore_runtime",
-                "application_data_rollback":False,
+                "application_data_rollback":any(a["application_data_rollback"] for a in apps),
                 "migration_allowed":False,"production_mutation_allowed":False}
 
 def operation(action,app_id=None,project=None,checkpoint=None):
@@ -609,6 +733,12 @@ def operation(action,app_id=None,project=None,checkpoint=None):
                         docker("network","rm",network)
                 values.pop(project,None)
                 _atomic(STATE,values)
+            elif state.get("version")==2 and state["operation"] in ("update","rollback"):
+                entry=values.get(project)
+                if not isinstance(entry,dict):
+                    raise AppError("compiled_rollback_evidence_unavailable",503)
+                result=_recover_versioned(project,entry,state,values,journal)
+                return {"project":project,"scope":"isolated_compiled_stage_only",**result}
             else:
                 old=state.get("old")
                 entry=state.get("entry") if state["operation"]=="uninstall" else values.get(project)
@@ -688,8 +818,8 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             if action in ("start","restart"):
                 _confirm_ready(project,manifest,entry["owner"])
             return {"operation":action,"app":_summary(project,entry)}
-        # Configuration/image rollback. Stage volumes are retained in-place;
-        # mutable DB contents are NOT snapshotted or restored.
+        # Version changes are now accompanied by cold stage-volume snapshots
+        # and an exact config-linked restore checkpoint.
         previous=_file(folder/"previous.json")
         if action=="update":
             new_raw=compile_stage(project,entry["app_id"],
@@ -706,26 +836,5 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             if target is None:
                 raise AppError("no_previous_compiled_stage_image",409)
             _validate(project,target,entry["owner"])
-        # Journal existing whole configuration before ANY Docker replace.
-        _atomic(journal,{"operation":action,"old":manifest,
-                         "revision":entry["revision"]})
-        _atomic(_compose_path(project),target)
-        try:
-            _up(project)
-            _confirm_ready(project,target,entry["owner"])
-            _atomic(previous,manifest)
-            entry["revision"]+=1
-            _atomic(STATE,values)
-            journal.unlink()
-        except Exception:
-            # Do not rewrite another app. Restore known original manifest and
-            # recreate only this generated project; leave journal on failure.
-            _atomic(_compose_path(project),manifest)
-            try:
-                _up(project)
-                _owned(project,manifest,entry["owner"])
-                journal.unlink()
-            except Exception:
-                raise AppError("compiled_stage_rollback_requires_recovery",503)
-            raise AppError("compiled_stage_update_failed_original_restored",503)
-        return {"operation":action,"app":_summary(project,entry)}
+        return _versioned_change(project,entry,values,manifest,services,
+                                 action,target,journal,previous)
