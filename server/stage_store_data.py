@@ -168,6 +168,33 @@ def listing(project,manifest):
     return [p.name for p in sorted(root.iterdir())
             if CP.fullmatch(p.name) and p.is_dir() and not p.is_symlink()]
 
+def delete_checkpoint(project,manifest,name):
+    """Delete one explicitly selected stage-only backup, never application data.
+
+    Refuse any deletion while a restore or online recovery journal exists.
+    The snapshot is validated and its directory remains under the stage
+    checkpoint root on the same filesystem.
+    """
+    _volumes(project,manifest)
+    if not isinstance(name,str) or not CP.fullmatch(name):
+        raise AppError("invalid_stage_checkpoint",400)
+    project_root=_dir(project)
+    for file in ("online-data-pending.json","data-restore-pending.json","pending.json"):
+        entry=project_root/file
+        if entry.exists() or entry.is_symlink():
+            raise AppError("stage_checkpoint_in_use_by_recovery",409)
+    root=_checkpoints(project)
+    snapshot=root/name
+    if (snapshot.is_symlink() or not snapshot.is_dir()
+            or snapshot.stat().st_dev!=ROOT.stat().st_dev):
+        raise AppError("unknown_stage_checkpoint",404)
+    _validate_snapshot(project,manifest,name)
+    shutil.rmtree(snapshot)
+    _sync(root)
+    return {"operation":"checkpoint_deleted","checkpoint":name,
+            "remaining":len(listing(project,manifest)),
+            "production_mutation_allowed":False}
+
 def _save(project,manifest):
     sources=_volumes(project,manifest)
     root=_checkpoints(project)

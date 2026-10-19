@@ -1113,6 +1113,8 @@ async function compiledRefresh(){
         for(const snapshot of (app.data_checkpoints||[])){
           controls.appendChild(stageButton("Restore + restart "+snapshot,!stageCanWrite,
             ()=>compiledAct("restore-online",app.project,snapshot)));
+          controls.appendChild(stageButton("Delete backup "+snapshot,!stageCanWrite,
+            ()=>compiledAct("delete-checkpoint",app.project,snapshot)));
         }
       }
       if(!running && !app.data_recovery_pending && !app.online_data_recovery_pending){
@@ -1154,7 +1156,7 @@ async function compiledOpenWeb(project){
   }catch(err){$("compiled-status").textContent="Cannot open app: "+err.message;}
 }
 async function compiledAct(action,project,checkpoint){
-  if(["uninstall","rollback","recover","recover-data","restore-data","restore-online","recover-online"].includes(action) &&
+  if(["uninstall","rollback","recover","recover-data","restore-data","restore-online","recover-online","delete-checkpoint"].includes(action) &&
      !confirm(action+" "+project+"? This only affects the isolated staging project."))return;
   $("compiled-status").textContent="Running "+action+" on staging "+project+"…";
   try{

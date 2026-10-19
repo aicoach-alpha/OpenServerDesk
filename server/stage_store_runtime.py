@@ -21,7 +21,8 @@ from stage_store_data import (
     restore as data_restore, recover as data_recover,
     _validate_snapshot as _data_validate,
     _save as _data_save,
-    _apply as _data_apply)
+    _apply as _data_apply,
+    delete_checkpoint as data_delete)
 
 ROOT=Path(STAGE)
 STATE=ROOT/"registry.json"
@@ -525,7 +526,7 @@ def listing():
 def operation(action,app_id=None,project=None,checkpoint=None):
     if action not in ("prepare","install","start","stop","restart","uninstall","update","rollback","recover",
                       "checkpoint","restore-data","recover-data",
-                      "backup-online","restore-online","recover-online"):
+                      "backup-online","restore-online","recover-online","delete-checkpoint"):
         raise AppError("invalid_compiled_stage_action",400)
     with guarded():
         values=_projects()
@@ -648,6 +649,8 @@ def operation(action,app_id=None,project=None,checkpoint=None):
         if data_pending.exists() or data_pending.is_symlink():
             if action!="recover-data":
                 raise AppError("stage_data_recovery_required",409)
+        if action=="delete-checkpoint":
+            return data_delete(project,manifest,checkpoint)
         if action=="recover-online":
             if checkpoint is not None:
                 raise AppError("invalid_online_recovery_request",400)
