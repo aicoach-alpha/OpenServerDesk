@@ -132,11 +132,31 @@ def execute_isolated(doc):
                                 capture_output=True, text=True, timeout=20)
             if ps.returncode or set(ps.stdout.splitlines()) != set(config["services"]):
                 raise RuntimeError("isolated synthetic services not all running")
+            # Verify actual staging resources, not just Compose declarations.
+            ids = subprocess.run(base + ["ps", "-q"], capture_output=True,
+                                 text=True, timeout=20)
+            container_ids = ids.stdout.splitlines()
+            if ids.returncode or len(container_ids) != len(config["services"]):
+                raise RuntimeError("isolated fixture container IDs unavailable")
+            inspected = subprocess.run(
+                ["docker", "inspect", "--format",
+                 "{{json .HostConfig}}", *container_ids],
+                capture_output=True, text=True, timeout=20)
+            if inspected.returncode:
+                raise RuntimeError("isolated fixture inspection failed")
+            for line in inspected.stdout.splitlines():
+                host = json.loads(line)
+                tmpfs = host.get("Tmpfs") or {}
+                if "/fixture-data" not in tmpfs or host.get("ReadonlyRootfs") is not True:
+                    raise RuntimeError("isolated fixture storage guard missing")
+                if host.get("PortBindings"):
+                    raise RuntimeError("isolated fixture unexpectedly published ports")
             return {"scope": "SYNTHETIC_COMPOSE_EXECUTION_ONLY",
                     "synthetic_services_running": len(config["services"]),
                     "dependency_order": plan["service_order"],
                     "isolated_network": True,
                     "ephemeral_tmpfs": True,
+                    "runtime_resource_guards_verified": True,
                     "synthetic_environment": True,
                     "translated_resource_counts": resource_counts,
                     "real_app_imports_verified": 0,
