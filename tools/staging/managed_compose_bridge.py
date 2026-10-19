@@ -5,6 +5,7 @@ Mutations delegate to the existing guarded stage Compose manager only.
 """
 from __future__ import annotations
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -60,6 +61,8 @@ def report(doc):
 
 def lifecycle_smoke():
     """One bounded staging-only install/lifecycle/uninstall integration."""
+    if os.geteuid() != 1000:
+        raise AppError("stage_lifecycle_smoke_requires_andre_uid_1000", 403)
     before = list_projects()["projects"]
     if before:
         raise AppError("stage_compose_inventory_not_empty_for_smoke", 409)
