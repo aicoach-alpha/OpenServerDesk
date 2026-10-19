@@ -100,6 +100,38 @@ def checkpoint_integrity(target, app_root):
             "application_integrity": app_integrity,
             "migration_allowed": False, "production_modified": False}
 
+def orchestrate_fixture(target, bundle, app_root):
+    """Activate disposable fixture only after a verified app snapshot.
+
+    On post-activation verification failure, restore the service pair from its
+    durable journal. Never touches the live application data or production.
+    """
+    from m1_fixture_activation import status as fixture_status
+    before = checkpoint_integrity(target, app_root)
+    if (before["service"]["state"] != "IDLE" or
+            before["applications"] not in ("SNAPSHOT_AVAILABLE", "RESTORED") or
+            before["application_integrity"] != "VERIFIED"):
+        raise RuntimeError("verified app snapshot and idle service fixture required")
+    changed = False
+    try:
+        fixture_execute("activate", target, bundle)
+        changed = True
+        after = checkpoint_integrity(target, app_root)
+        if (after["service"]["state"] != "ROLLBACK_AVAILABLE" or
+                after["service"].get("journal_integrity") != "VERIFIED" or
+                after["application_integrity"] != "VERIFIED"):
+            raise RuntimeError("post-activation checkpoint integrity failed")
+        return {"scope": "STAGING_FIXTURE_ORCHESTRATION_ONLY",
+                "result": "ACTIVATED_WITH_UNDO", "checkpoint": after,
+                "migration_allowed": False, "production_modified": False}
+    except Exception:
+        # If activation raised after journaling but before returning, the
+        # durable journal may still exist; recover only when verified.
+        state = checkpoint_integrity(target, app_root)["service"]
+        if state["state"] == "ROLLBACK_AVAILABLE" and state.get("journal_integrity") == "VERIFIED":
+            fixture_execute("rollback", target)
+        raise
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--fixture-action", choices=("status", "activate", "rollback"),
@@ -109,26 +141,34 @@ def main():
     p.add_argument("--app-fixture-action", choices=("snapshot", "restore"),
                    help="multi-project isolated staging snapshot/restore only")
     p.add_argument("--app-fixture", type=Path)
+    p.add_argument("--orchestrate-fixture", action="store_true",
+                   help="verified app checkpoint, fixture activation, rollback on failure")
     p.add_argument("--checkpoint", action="store_true",
                    help="read-only combined fixture checkpoint; no production actions")
     p.add_argument("--backup",type=Path)
     p.add_argument("--candidate",type=Path)
     p.add_argument("--report",type=Path)
     args=p.parse_args()
-    if args.checkpoint:
+    if args.orchestrate_fixture:
+        if (args.checkpoint or args.fixture_action or args.app_fixture_action
+                or not args.fixture_target or not args.fixture_bundle or not args.app_fixture
+                or args.backup or args.candidate):
+            p.error("orchestration requires fixture target, bundle and app fixture only")
+        result = orchestrate_fixture(args.fixture_target, args.fixture_bundle, args.app_fixture)
+    elif args.checkpoint:
         if (args.app_fixture_action or args.fixture_action or not args.app_fixture
                 or not args.fixture_target or args.fixture_bundle or args.backup
                 or args.candidate):
             p.error("checkpoint requires --fixture-target and --app-fixture only")
         result = checkpoint_integrity(args.fixture_target, args.app_fixture)
     elif args.app_fixture_action:
-        if (not args.app_fixture or args.fixture_action or args.fixture_target
+        if (args.orchestrate_fixture or not args.app_fixture or args.fixture_action or args.fixture_target
                 or args.fixture_bundle or args.backup or args.candidate):
             p.error("app fixture mode requires --app-fixture only")
         result = (app_snapshot(args.app_fixture) if args.app_fixture_action == "snapshot"
                   else app_restore(args.app_fixture))
     elif args.fixture_action:
-        if args.backup or args.candidate or args.app_fixture or not args.fixture_target:
+        if args.orchestrate_fixture or args.backup or args.candidate or args.app_fixture or not args.fixture_target:
             p.error("fixture mode requires --fixture-target and forbids --backup/--candidate")
         result = fixture_execute(args.fixture_action, args.fixture_target, args.fixture_bundle)
     else:
