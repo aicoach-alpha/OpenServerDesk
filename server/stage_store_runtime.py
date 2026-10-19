@@ -18,7 +18,10 @@ from stage_apps import AppError, guarded, registry as user_registry
 from stage_store_compiler import compile_stage, prepare_images, STAGE
 from stage_store_data import (
     listing as data_listing, checkpoint as data_checkpoint,
-    restore as data_restore, recover as data_recover)
+    restore as data_restore, recover as data_recover,
+    _validate_snapshot as _data_validate,
+    _save as _data_save,
+    _apply as _data_apply)
 
 ROOT=Path(STAGE)
 STATE=ROOT/"registry.json"
@@ -416,9 +419,91 @@ def _summary(project,entry):
             "manual_stage_volume_backup_restore":True,
             "data_checkpoints":data_listing(project,manifest),
             "data_recovery_pending":(_folder(project)/"data-restore-pending.json").exists(),
+            "online_data_recovery_pending":_online_file(project).exists(),
             "web_url":("http://127.0.0.1:"+str(_published_port(manifest))
                        if _published_port(manifest) is not None else None),
             "production_mutation_allowed":False}
+
+def _online_file(project):
+    return _file(_folder(project)/"online-data-pending.json")
+
+def _stop_for_online(services):
+    for s in services.values():
+        if s["running"]:
+            docker("stop","--time","3",s["id"])
+
+def _resume_online(project,manifest,owner,running):
+    """Resume only services that were running before the online operation."""
+    current=_owned(project,manifest,owner)
+    if set(running)!=set(current):
+        raise AppError("stage_online_service_layout_changed",503)
+    for name,s in current.items():
+        if name in running and not s["running"]:
+            docker("start",s["id"])
+    current=_owned(project,manifest,owner)
+    if any(current[name]["running"]!=(name in running) for name in current):
+        raise AppError("stage_online_service_restart_mismatch",503)
+    if len(running)==len(current) and running:
+        _confirm_ready(project,manifest,owner)
+
+def _online_recover(project,manifest,entry):
+    path=_online_file(project)
+    record=_read(path,None)
+    if not isinstance(record,dict) or record.get("version")!=1 or record.get("operation") not in (
+        "backup-online","restore-online"):
+        raise AppError("no_stage_online_data_recovery",404)
+    running=record.get("running")
+    if (not isinstance(running,list) or len(running)!=len(set(running))
+            or not all(isinstance(x,str) and x in manifest["services"] for x in running)):
+        raise AppError("invalid_stage_online_recovery_journal",503)
+    _stop_for_online(_owned(project,manifest,entry["owner"]))
+    current=_owned(project,manifest,entry["owner"])
+    if record["operation"]=="restore-online":
+        undo=record.get("undo")
+        if undo is not None:
+            _data_apply(project,manifest,undo)
+    _resume_online(project,manifest,entry["owner"],set(running))
+    path.unlink()
+    return {"operation":"recovered_online_data","restored_old_data":(
+                record["operation"]=="restore-online" and record.get("undo") is not None),
+            "production_mutation_allowed":False,"app":_summary(project,entry)}
+
+def _online_data(project,manifest,entry,services,action,checkpoint):
+    path=_online_file(project)
+    if path.exists() or path.is_symlink():
+        raise AppError("stage_online_data_recovery_required",409)
+    running=sorted(name for name,s in services.items() if s["running"])
+    if action=="restore-online":
+        _data_validate(project,manifest,checkpoint)
+    elif checkpoint is not None:
+        raise AppError("invalid_online_checkpoint_request",400)
+    record={"version":1,"operation":action,"running":running,"undo":None}
+    # Journal first; a crash during stop/checkpoint can be recovered safely.
+    _atomic(path,record)
+    try:
+        _stop_for_online(services)
+        current=_owned(project,manifest,entry["owner"])
+        if any(x["running"] for x in current.values()):
+            raise AppError("stage_online_stop_incomplete",503)
+        if action=="backup-online":
+            saved=data_checkpoint(project,manifest,current)
+            result={"operation":"backed_up_online","checkpoint":saved["checkpoint"],
+                    "sqlite_files_verified":saved["sqlite_files_verified"]}
+        else:
+            # Preserve exact pre-restore bytes BEFORE mutating anything.
+            # The journal pins this undo checkpoint durably.
+            record["undo"]=_data_save(project,manifest)
+            _atomic(path,record)
+            checked=_data_apply(project,manifest,checkpoint)
+            result={"operation":"restored_online","checkpoint":checkpoint,
+                    "undo":record["undo"],"sqlite_files_verified":checked}
+        _resume_online(project,manifest,entry["owner"],set(running))
+        path.unlink()
+        result.update({"production_mutation_allowed":False,"app":_summary(project,entry)})
+        return result
+    except Exception as err:
+        # Leave a durable journal. No blind automatic retry after a crash.
+        raise AppError("stage_online_data_requires_recovery",503) from err
 
 def listing():
     with guarded():
@@ -439,7 +524,8 @@ def listing():
 
 def operation(action,app_id=None,project=None,checkpoint=None):
     if action not in ("prepare","install","start","stop","restart","uninstall","update","rollback","recover",
-                      "checkpoint","restore-data","recover-data"):
+                      "checkpoint","restore-data","recover-data",
+                      "backup-online","restore-online","recover-online"):
         raise AppError("invalid_compiled_stage_action",400)
     with guarded():
         values=_projects()
@@ -555,11 +641,19 @@ def operation(action,app_id=None,project=None,checkpoint=None):
         journal=_file(folder/"pending.json")
         if journal.exists():
             raise AppError("compiled_stage_recovery_required",409)
+        if (_online_file(project).exists() or _online_file(project).is_symlink()) and action!="recover-online":
+            raise AppError("stage_online_data_recovery_required",409)
         manifest,services=_current(project,entry)
         data_pending=folder/"data-restore-pending.json"
         if data_pending.exists() or data_pending.is_symlink():
             if action!="recover-data":
                 raise AppError("stage_data_recovery_required",409)
+        if action=="recover-online":
+            if checkpoint is not None:
+                raise AppError("invalid_online_recovery_request",400)
+            return _online_recover(project,manifest,entry)
+        if action in ("backup-online","restore-online"):
+            return _online_data(project,manifest,entry,services,action,checkpoint)
         if action=="checkpoint":
             if checkpoint is not None:
                 raise AppError("invalid_data_checkpoint_request",400)

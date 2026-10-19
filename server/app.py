@@ -566,9 +566,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(200,compiled_store_operation(op,app_id=payload["id"]))
                 if set(payload)=={"action","project"} and op in (
                     "start","stop","restart","uninstall","update","rollback","recover",
-                    "checkpoint","recover-data"):
+                    "checkpoint","recover-data","backup-online","recover-online"):
                     return self.respond(200,compiled_store_operation(op,project=payload["project"]))
-                if set(payload)=={"action","project","checkpoint"} and op=="restore-data":
+                if set(payload)=={"action","project","checkpoint"} and op in ("restore-data","restore-online"):
                     return self.respond(200,compiled_store_operation(op,project=payload["project"],
                                                                     checkpoint=payload["checkpoint"]))
                 raise AppError("invalid_compiled_store_request",400)

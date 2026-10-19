@@ -1096,18 +1096,26 @@ async function compiledRefresh(){
         (app.web_url?" · server loopback: "+app.web_url:""));
       const controls=document.createElement("td");
       const running=app.services.some(x=>x.running);
-      const actions=app.data_recovery_pending?["recover-data"]:
-         running?["stop","restart","update","rollback","uninstall"]:
+      const actions=app.online_data_recovery_pending?["recover-online"]:
+        app.data_recovery_pending?["recover-data"]:
+         running?["Backup + restart","stop","restart","update","rollback","uninstall"]:
                  ["start","update","rollback","checkpoint","uninstall"];
       for(const action of actions){
-        controls.appendChild(stageButton(action,!stageCanWrite,()=>compiledAct(action,app.project)));
+        controls.appendChild(stageButton(action,!stageCanWrite,
+          ()=>compiledAct(action==="Backup + restart"?"backup-online":action,app.project)));
       }
       if(app.app_id==="default:MySpeed" && app.outbound_network_pilot===true
          && app.all_running && !app.data_recovery_pending){
         controls.appendChild(stageButton("Open app",!stageCanWrite,
           ()=>compiledOpenWeb(app.project)));
       }
-      if(!running && !app.data_recovery_pending){
+      if(!app.data_recovery_pending && !app.online_data_recovery_pending){
+        for(const snapshot of (app.data_checkpoints||[])){
+          controls.appendChild(stageButton("Restore + restart "+snapshot,!stageCanWrite,
+            ()=>compiledAct("restore-online",app.project,snapshot)));
+        }
+      }
+      if(!running && !app.data_recovery_pending && !app.online_data_recovery_pending){
         for(const snapshot of (app.data_checkpoints||[])){
           controls.appendChild(stageButton("Restore "+snapshot,!stageCanWrite,
             ()=>compiledAct("restore-data",app.project,snapshot)));
@@ -1146,7 +1154,7 @@ async function compiledOpenWeb(project){
   }catch(err){$("compiled-status").textContent="Cannot open app: "+err.message;}
 }
 async function compiledAct(action,project,checkpoint){
-  if(["uninstall","rollback","recover","recover-data","restore-data"].includes(action) &&
+  if(["uninstall","rollback","recover","recover-data","restore-data","restore-online","recover-online"].includes(action) &&
      !confirm(action+" "+project+"? This only affects the isolated staging project."))return;
   $("compiled-status").textContent="Running "+action+" on staging "+project+"…";
   try{
