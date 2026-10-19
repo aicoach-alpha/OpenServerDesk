@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """M1.4 in-place migration installer pre-activation gate. No production mutations."""
 import argparse, hashlib, importlib.util, json, os, subprocess
+from urllib.request import urlopen
 from pathlib import Path
 import migration_preflight as preflight
 import backup_restore as backup
@@ -138,7 +139,26 @@ def verified_stage_release(candidate):
     return proof
 
 
-def orchestrate_fixture(target, bundle, app_root, candidate=None):
+def stage_runtime_probe():
+    """Read-only local staging API probe, never production or remote URLs."""
+    endpoint = "http://127.0.0.1:18690"
+    with urlopen(endpoint + "/health", timeout=3) as response:
+        if response.status != 200:
+            raise RuntimeError("staging health unavailable")
+        health = json.load(response)
+    if health.get("service") != "openserverdesk" or health.get("environment") != "staging":
+        raise RuntimeError("unexpected staging runtime identity")
+    with urlopen(endpoint + "/api/v1/migration/readiness", timeout=3) as response:
+        if response.status != 200:
+            raise RuntimeError("staging readiness unavailable")
+        readiness = json.load(response)
+    if readiness.get("migration_allowed") is not False:
+        raise RuntimeError("staging runtime unexpectedly permits production migration")
+    return {"endpoint": endpoint, "service": "openserverdesk",
+            "environment": "staging", "migration_allowed": False}
+
+
+def orchestrate_fixture(target, bundle, app_root, candidate=None, probe_runtime=False):
     """Activate disposable fixture only after a verified app snapshot.
 
     On post-activation verification failure, restore the service pair from its
@@ -150,6 +170,7 @@ def orchestrate_fixture(target, bundle, app_root, candidate=None):
             before["applications"] not in ("SNAPSHOT_AVAILABLE", "RESTORED") or
             before["application_integrity"] != "VERIFIED"):
         raise RuntimeError("verified app snapshot and idle service fixture required")
+    runtime = stage_runtime_probe() if probe_runtime else None
     package = candidate_identity(candidate) if candidate is not None else None
     signature = verified_stage_release(candidate) if candidate is not None else None
     # Require an actual staging owner and no active stage-owned Docker
@@ -169,6 +190,7 @@ def orchestrate_fixture(target, bundle, app_root, candidate=None):
                 "result": "ACTIVATED_WITH_UNDO", "checkpoint": after,
                 "stage_owner": stage_owner, "stage_writer_quiesced": True,
                 "candidate": package, "staging_signature": signature,
+                "runtime": runtime,
                 "migration_allowed": False, "production_modified": False}
     except Exception:
         # If activation raised after journaling but before returning, the
@@ -206,6 +228,8 @@ def main():
     p.add_argument("--app-fixture-action", choices=("snapshot", "restore"),
                    help="multi-project isolated staging snapshot/restore only")
     p.add_argument("--app-fixture", type=Path)
+    p.add_argument("--probe-stage-runtime", action="store_true",
+                   help="verify local staging health and migration lock before activation")
     p.add_argument("--stage-candidate", type=Path,
                    help="optional read-only .deb identity for staging orchestration")
     p.add_argument("--orchestrate-fixture", action="store_true",
@@ -222,25 +246,26 @@ def main():
                 or args.backup or args.candidate):
             p.error("orchestration requires fixture target, bundle and app fixture only")
         result = orchestrate_fixture(args.fixture_target, args.fixture_bundle,
-                                     args.app_fixture, args.stage_candidate)
+                                     args.app_fixture, args.stage_candidate,
+                                     args.probe_stage_runtime)
     elif args.checkpoint:
-        if (args.stage_candidate or args.app_fixture_action or args.fixture_action or not args.app_fixture
+        if (args.probe_stage_runtime or args.stage_candidate or args.app_fixture_action or args.fixture_action or not args.app_fixture
                 or not args.fixture_target or args.fixture_bundle or args.backup
                 or args.candidate):
             p.error("checkpoint requires --fixture-target and --app-fixture only")
         result = checkpoint_integrity(args.fixture_target, args.app_fixture)
     elif args.app_fixture_action:
-        if (args.stage_candidate or args.orchestrate_fixture or not args.app_fixture or args.fixture_action or args.fixture_target
+        if (args.probe_stage_runtime or args.stage_candidate or args.orchestrate_fixture or not args.app_fixture or args.fixture_action or args.fixture_target
                 or args.fixture_bundle or args.backup or args.candidate):
             p.error("app fixture mode requires --app-fixture only")
         result = (app_snapshot(args.app_fixture) if args.app_fixture_action == "snapshot"
                   else app_restore(args.app_fixture))
     elif args.fixture_action:
-        if args.stage_candidate or args.orchestrate_fixture or args.backup or args.candidate or args.app_fixture or not args.fixture_target:
+        if args.probe_stage_runtime or args.stage_candidate or args.orchestrate_fixture or args.backup or args.candidate or args.app_fixture or not args.fixture_target:
             p.error("fixture mode requires --fixture-target and forbids --backup/--candidate")
         result = fixture_execute(args.fixture_action, args.fixture_target, args.fixture_bundle)
     else:
-        if args.stage_candidate or args.fixture_target or args.fixture_bundle or args.app_fixture or args.app_fixture_action:
+        if args.probe_stage_runtime or args.stage_candidate or args.fixture_target or args.fixture_bundle or args.app_fixture or args.app_fixture_action:
             p.error("fixture arguments require --fixture-action")
         if not args.backup:
             p.error("--backup required for production read-only preflight")
