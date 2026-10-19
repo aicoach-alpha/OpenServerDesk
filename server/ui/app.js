@@ -161,6 +161,25 @@ function stageButton(text, disabled, callback) {
   b.addEventListener("click", callback);
   return b;
 }
+async function unifiedStageInventoryRefresh() {
+  if (!stageToken) return;
+  const response=await fetch("/api/v1/stage/unified-inventory",{
+    cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+  });
+  const result=await response.json();
+  if (!response.ok) throw Error(result.error||"Unified inventory unavailable");
+  if (result.scope!=="stage_owned_inventory_only" ||
+      result.production_mutation_allowed!==false)
+    throw Error("Unsafe unified inventory scope");
+  const counts=result.counts;
+  const expected=["docker","compose","store_pilot","store_general"];
+  if (!expected.every(key=>Number.isInteger(counts[key]) && counts[key]>=0))
+    throw Error("Invalid unified inventory counts");
+  $("stage-unified-summary").textContent="Managed staging inventory: "+
+    result.total+" total · "+counts.docker+" Docker · "+counts.compose+
+    " Compose · "+counts.store_pilot+" Store pilot · "+
+    counts.store_general+" Store catalog";
+}
 async function stageRefresh() {
   try {
     const identityResponse=await fetch("/api/v1/stage/whoami", {
@@ -217,6 +236,8 @@ async function stageRefresh() {
       tr.appendChild(tools);tbody.appendChild(tr);
     }
     await stageComposeRefresh();
+    try { await unifiedStageInventoryRefresh(); }
+    catch(err) { $("stage-unified-summary").textContent="Unified inventory: "+err.message; }
   } catch(err) {
     stageCanWrite=false;
     $("stage-compose-install").disabled=true;
