@@ -1050,6 +1050,91 @@ def _recover_failed_install(project,manifest,owner,values):
     _atomic(STATE,values)
 
 
+def _cleanup_failed_preparation(project,folder,values):
+    """Remove only freshly created, empty staging scaffolding before Docker up.
+
+    Nothing is recursively deleted. Reject unknown data, symlinks, mountpoints,
+    partial recovery journals, registered projects and Docker resources before
+    unlinking even a stage-created secret or manifest.
+    """
+    if (not isinstance(project,str) or not PROJECT.fullmatch(project)
+        or project in values or folder!=_folder(project)):
+        raise AppError("unsafe_stage_prepare_cleanup_identity",403)
+    root=_root()
+    root_stat=root.stat()
+    try:
+        stage_stat=folder.lstat()
+    except OSError:
+        raise AppError("unsafe_stage_prepare_cleanup_folder",403)
+    if (not stat.S_ISDIR(stage_stat.st_mode)
+        or stage_stat.st_uid!=os.geteuid()
+        or stage_stat.st_dev!=root_stat.st_dev
+        or stat.S_IMODE(stage_stat.st_mode)!=0o700
+        or os.path.ismount(folder)):
+        raise AppError("unsafe_stage_prepare_cleanup_folder",403)
+    journal=folder/"pending.json"
+    if journal.exists() or journal.is_symlink():
+        raise AppError("stage_prepare_recovery_journal_present",409)
+    # A failed preparation has never run Docker compose. If any Docker
+    # resource now claims the randomly generated project, stop fail-closed.
+    containers=docker("ps","--all","--quiet","--no-trunc",
+                      "--filter","label=com.docker.compose.project="+project)
+    if containers.strip():
+        raise AppError("stage_prepare_docker_resource_present",403)
+    for name in ("isolated","egress"):
+        network=docker("network","ls","--quiet","--filter",
+                       "name=^"+project+"_"+name+"$")
+        if network.strip():
+            raise AppError("stage_prepare_docker_resource_present",403)
+
+    allowed_files={"compose.json","dockpeek-staging-secret.json",
+                   "qui-staging-secret.json"}
+    remove_files=[]
+    remove_volumes=[]
+    remove_services=[]
+    inspected=0
+    def check(path,mode):
+        nonlocal inspected
+        inspected+=1
+        if inspected>64 or path.is_symlink() or os.path.ismount(path):
+            raise AppError("unsafe_stage_prepare_cleanup_entry",403)
+        item=path.lstat()
+        if (item.st_uid!=os.geteuid() or item.st_dev!=root_stat.st_dev
+            or not mode(item.st_mode)):
+            raise AppError("unsafe_stage_prepare_cleanup_entry",403)
+        return item
+
+    for child in folder.iterdir():
+        if child.name in allowed_files:
+            item=check(child,stat.S_ISREG)
+            if (item.st_nlink!=1 or
+                item.st_size>(90000 if child.name=="compose.json" else 160)
+                or stat.S_IMODE(item.st_mode)!=0o600):
+                raise AppError("unsafe_stage_prepare_cleanup_file",403)
+            remove_files.append(child)
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,35}",child.name):
+            raise AppError("unsafe_stage_prepare_cleanup_entry",403)
+        check(child,stat.S_ISDIR)
+        remove_services.append(child)
+        for volume in child.iterdir():
+            if (not re.fullmatch(r"volume-[0-9]{1,2}",volume.name)
+                or int(volume.name.split("-")[1])>=MAX_MOUNTS):
+                raise AppError("unsafe_stage_prepare_cleanup_volume",403)
+            check(volume,stat.S_ISDIR)
+            if any(volume.iterdir()):
+                raise AppError("stage_prepare_volume_contains_data",403)
+            remove_volumes.append(volume)
+    # Preflight completes before a single unlink; no arbitrary rmtree.
+    for child in remove_files:
+        child.unlink()
+    for volume in remove_volumes:
+        volume.rmdir()
+    for service in remove_services:
+        service.rmdir()
+    folder.rmdir()
+
+
 def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
     if image_tag is not None and action!="switch-version":
         raise AppError("unexpected_stage_image_version",400)
@@ -1085,20 +1170,32 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                     raise AppError("staging_network_name_collision",409)
             folder=_folder(project)
             folder.mkdir(mode=0o700)
-            if app_id==QUI_APP:
-                qui_secret_create(project)
-            if app_id==DOCKPEEK_ID:
-                dockpeek_secret_create(project)
-            raw=compile_stage(project,app_id,host_port=_pick_port(project))
-            owner=user_registry()["owner"]
-            _prepare_volumes(project,raw)
-            manifest=_manifest(project,app_id,owner,raw)
-            _validate(project,manifest,owner)
-            _atomic(_compose_path(project),manifest)
-            # If this fails, a stage-only project may need operator review.
-            # We record an explicit fail-closed recovery marker.
-            journal=_file(folder/"pending.json")
-            _atomic(journal,{"operation":"install","app_id":app_id,"owner":owner})
+            # The journal is written only AFTER the source definition,
+            # generated credentials, Compose and empty stage volumes pass.
+            # Compensate preparation errors without ever touching Docker
+            # resources, previous projects, or user-provided data.
+            try:
+                if app_id==QUI_APP:
+                    qui_secret_create(project)
+                if app_id==DOCKPEEK_ID:
+                    dockpeek_secret_create(project)
+                raw=compile_stage(project,app_id,host_port=_pick_port(project))
+                owner=user_registry()["owner"]
+                _prepare_volumes(project,raw)
+                manifest=_manifest(project,app_id,owner,raw)
+                _validate(project,manifest,owner)
+                _atomic(_compose_path(project),manifest)
+                journal=_file(folder/"pending.json")
+                _atomic(journal,{"operation":"install","app_id":app_id,"owner":owner})
+            except Exception as prepare_error:
+                try:
+                    _cleanup_failed_preparation(project,folder,values)
+                except Exception:
+                    # Preserve unrecognized data/partial journal for review.
+                    raise AppError(
+                        "compiled_stage_prepare_cleanup_required",503
+                    ) from prepare_error
+                raise
             try:
                 _up(project)
                 _confirm_ready(project,manifest,owner,

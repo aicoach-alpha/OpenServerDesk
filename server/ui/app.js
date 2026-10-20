@@ -1983,7 +1983,15 @@ $("compiled-install").addEventListener("click",async()=>{
     await compiledApi("POST",{action:"install",id:app});
     await compiledRefresh();
     await updateUnifiedInventoryAfterAction();
-  }catch(err){$("compiled-status").textContent="Install failed: "+err.message;}
+  }catch(err){
+    $("compiled-status").textContent=
+      err.message==="compiled_stage_prepare_cleanup_required"
+        ? "Install preparation stopped safely. Unknown stage files, a recovery journal, or Docker resources require operator review. No automatic deletion was attempted; inspect unregistered staging directories before retrying."
+        : err.message==="compiled_stage_install_failed_recovery_required"
+          ? "Install failed and the isolated project needs recovery. Inspect the staging Recovery entry before retrying."
+          : "Install failed: "+err.message+
+            ". Any verified empty preparation scaffold is cleaned automatically.";
+  }
   finally{$("compiled-install").disabled=!stageCanWrite||!compiledSelectedId;}
 });
 $("compiled-refresh").addEventListener("click",compiledRefresh);
