@@ -32,7 +32,8 @@ _ALLOWED_METHODS={"GET","HEAD","POST","PUT","PATCH","DELETE"}
 _ALLOWED_TYPES=("text/","application/json","application/javascript",
                 "application/manifest+json","image/","font/","application/font-",
                 "application/octet-stream")
-_REWRITE_PREFIXES=("assets/","api/","api","manifest.json","registerSW.js","sw.js",
+_REWRITE_PREFIXES=("assets/","static/","api/","api","export/","logout",
+                   "manifest.json","registerSW.js","sw.js",
                    "favicon.ico","socket.io/")
 _SEGMENT=re.compile(r"[A-Za-z0-9._~!$&'()+,;=:@%/-]*\Z")
 
