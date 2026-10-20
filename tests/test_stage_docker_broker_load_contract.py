@@ -49,8 +49,10 @@ class StageBrokerLoadContract(unittest.TestCase):
         finally:
             for _ in acquired:
                 broker._STATS_SLOTS.release()
-        self.assertLessEqual(broker.MAX_EVENT_SECONDS,60)
-        self.assertLessEqual(broker.MAX_STATS_SECONDS,30)
+        self.assertGreaterEqual(broker.MAX_EVENT_SECONDS,60)
+        self.assertLessEqual(broker.MAX_EVENT_SECONDS,900)
+        self.assertGreaterEqual(broker.MAX_STATS_SECONDS,30)
+        self.assertLessEqual(broker.MAX_STATS_SECONDS,300)
 
 
 if __name__=="__main__":

@@ -12,7 +12,6 @@ import datetime
 import selectors
 import struct
 import subprocess
-import sys
 import time
 import os
 import re
@@ -117,20 +116,6 @@ def _resolve_stage_item(reference, rows=None):
     return options[0]
 
 
-def _reject_log_time(raw):
-    # Diagnostic intentionally records SHAPE ONLY, never a user-supplied
-    # timestamp, arbitrary query value or application log content.
-    text=str(raw)
-    shape="".join(
-        "9" if char in "0123456789" else
-        "A" if char.isalpha() else
-        char if char in ".:-+_ /" else "?"
-        for char in text[:65])
-    print("OSD_STAGE_LOG_TIME_FORMAT len="+str(len(text))+
-          " shape="+shape,file=sys.stderr,flush=True)
-    raise AppError("invalid_stage_log_timestamp",400)
-
-
 def _safe_log_time(raw):
     """Docker logs timestamp: Unix seconds/nanoseconds or valid RFC3339Nano."""
     if raw in ("","0"):
@@ -140,7 +125,7 @@ def _safe_log_time(raw):
     if isinstance(raw,str) and re.fullmatch(r"-[0-9]{1,11}(?:\.[0-9]{1,9})?",raw):
         return None
     if not isinstance(raw,str) or len(raw)>42:
-        _reject_log_time(raw)
+        raise AppError("invalid_stage_log_timestamp",400)
     if raw.isascii() and raw.isdecimal() and len(raw)<=20:
         value=int(raw)
         # Some Go clients provide epoch nanoseconds, but Docker CLI expects
@@ -148,23 +133,23 @@ def _safe_log_time(raw):
         if len(raw)>=16:
             value=value//1_000_000_000
         if value>4_102_444_800:  # future beyond 2100 is not meaningful
-            _reject_log_time(raw)
+            raise AppError("invalid_stage_log_timestamp",400)
         return str(value)
     fraction=re.fullmatch(r"([0-9]{1,11})\.([0-9]{1,9})",raw)
     if fraction:
         if int(fraction.group(1))>4_102_444_800:
-            _reject_log_time(raw)
+            raise AppError("invalid_stage_log_timestamp",400)
         return (None if not int(fraction.group(1)) and
                 not int(fraction.group(2)) else raw)
     iso=re.fullmatch(
         r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
         r"(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})?",raw)
     if iso is None:
-        _reject_log_time(raw)
+        raise AppError("invalid_stage_log_timestamp",400)
     try:
         datetime.datetime.fromisoformat(raw.replace("Z","+00:00"))
     except ValueError:
-        _reject_log_time(raw)
+        raise AppError("invalid_stage_log_timestamp",400)
     return raw
 
 

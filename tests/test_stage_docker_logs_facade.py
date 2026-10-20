@@ -43,6 +43,10 @@ class DockerLogsContract(unittest.TestCase):
         self.assertEqual(facade._log_request("since=1760949000.123456789")["since"],
                          "1760949000.123456789")
         self.assertIsNone(facade._log_request("until=0.000000000")["until"])
+        self.assertIsNone(facade._log_request(
+            "since=-62135596800.000000000")["since"])
+        self.assertIsNone(facade._log_request(
+            "until=-62135596800.000000000")["until"])
         self.assertEqual(facade._log_request(
             "since=2026-10-20T08%3A30%3A00.123")["since"],
             "2026-10-20T08:30:00.123")
