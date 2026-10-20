@@ -12,7 +12,8 @@ from stage_host_socket import (
     eligible as host_socket_eligible,
     adapted_service as host_socket_adapted,
     socket_mount as host_socket_mount,
-    PILOT_SERVICE, LABEL as HOST_SOCKET_LABEL, LABEL_VALUE as HOST_SOCKET_LABEL_VALUE,
+    approved_service as host_socket_service,
+    LABEL as HOST_SOCKET_LABEL, LABEL_VALUE as HOST_SOCKET_LABEL_VALUE,
 )
 from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environments as qui_environments, HEALTH as QUI_HEALTH
 
@@ -149,7 +150,7 @@ def analyze(doc, resolver=resolve_image, *, app_id=None):
         image=service.get("image")
         if not isinstance(image,str) or not IMAGE.fullmatch(image):
             raise AppError("invalid_catalog_image",409)
-        brokered=host_socket_eligible(app_id,doc) and name==PILOT_SERVICE
+        brokered=host_socket_eligible(app_id,doc) and name==host_socket_service(app_id)
         sandbox_service=(host_socket_adapted(app_id,doc,name,service)
                          if brokered else service)
         targets=_mount_targets(sandbox_service)

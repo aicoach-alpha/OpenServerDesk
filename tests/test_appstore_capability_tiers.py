@@ -10,10 +10,10 @@ class RemediationTests(unittest.TestCase):
     def test_every_catalog_entry_has_precise_safe_status(self):
         data=listing()
         self.assertEqual(data["app_count"],726)
-        self.assertEqual(data["sandbox_plan_supported"],673)
+        self.assertEqual(data["sandbox_plan_supported"],674)
         self.assertEqual(data["install_mode_counts"],{
-            "isolated_stage_sandbox":673,
-            "special_host_integration":53,
+            "isolated_stage_sandbox":674,
+            "special_host_integration":52,
             "unsupported_compose_metadata":0,
         })
         self.assertFalse(data["production_mutation_allowed"])

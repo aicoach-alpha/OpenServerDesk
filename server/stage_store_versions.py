@@ -9,12 +9,17 @@ import re
 from stage_apps import AppError
 from stage_store_compiler import IMAGE, resolve_image
 from stage_store_general import _find_catalog_definition
+from stage_host_socket import approved_app
 
 TAG=re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,89}\Z")
 IMMUTABLE=re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 def repository(app_id):
+    if approved_app(app_id):
+        # Curated host-socket pilots must remain on their audited exact
+        # catalog image digest. No alternate tag may inherit this mount.
+        raise AppError("broker_pilot_image_version_pinned",409)
     _,doc=_find_catalog_definition(app_id)
     services=doc.get("services") if isinstance(doc,dict) else None
     if not isinstance(services,dict) or len(services)!=1:
@@ -37,7 +42,8 @@ def cached_versions(app_id,docker_cmd):
         repo=repository(app_id)
     except AppError as error:
         if error.message in ("version_switch_requires_single_service",
-                             "version_switch_requires_tagged_catalog_image"):
+                             "version_switch_requires_tagged_catalog_image",
+                             "broker_pilot_image_version_pinned"):
             return []
         raise
     # Only one read-only Docker image metadata operation.

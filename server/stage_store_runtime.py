@@ -21,7 +21,7 @@ from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVICES
 from stage_store_versions import cached_versions, current_tags, target_image, check_runtime_contract
 from stage_host_socket import (
-    PILOT_ID as BROKER_PILOT_ID,
+    approved_app as broker_app_approved,
     LABEL as BROKER_LABEL,
     LABEL_VALUE as BROKER_LABEL_VALUE,
     is_facade_mount,
@@ -422,7 +422,7 @@ def _validate(project,manifest,owner,*,read_only=False):
                   "osd.m1.compiled.service":name,
                   "osd.m1.compiled.app":cfg.get("labels",{}).get("osd.m1.compiled.app"),
                   "osd.m1.compiled.owner":owner}
-        if expected["osd.m1.compiled.app"]==BROKER_PILOT_ID:
+        if broker_app_approved(expected["osd.m1.compiled.app"]):
             expected[BROKER_LABEL]=BROKER_LABEL_VALUE
         network_ok=(cfg.get("network_mode")=="none" and "networks" not in manifest and not cfg.get("networks"))
         network_ok=network_ok or (network is not None
@@ -460,7 +460,7 @@ def _validate(project,manifest,owner,*,read_only=False):
             if is_facade_mount(mount):
                 # Explicit pilot mount is a synthetic Unix socket. No real
                 # host Docker socket can match this pinned provenance.
-                if (expected["osd.m1.compiled.app"]!=BROKER_PILOT_ID or
+                if (not broker_app_approved(expected["osd.m1.compiled.app"]) or
                     cfg["labels"].get(BROKER_LABEL)!=BROKER_LABEL_VALUE or
                     src.is_symlink()):
                     raise AppError("unsafe_compiled_broker_scope",403)
