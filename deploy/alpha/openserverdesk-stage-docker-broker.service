@@ -5,8 +5,8 @@ Before=openserverdesk-alpha.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/andre/openserverdesk-alpha/releases/0.7.0-alpha.20/server
-ExecStart=/usr/bin/python3 -B /home/andre/openserverdesk-alpha/releases/0.7.0-alpha.20/server/stage_docker_api_broker.py
+WorkingDirectory=/home/andre/openserverdesk-alpha/releases/0.7.0-alpha.21/server
+ExecStart=/usr/bin/python3 -B /home/andre/openserverdesk-alpha/releases/0.7.0-alpha.21/server/stage_docker_api_broker.py
 Restart=on-failure
 RestartSec=3
 UMask=0077

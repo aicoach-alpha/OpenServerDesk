@@ -24,7 +24,9 @@ from urllib.parse import urlsplit,parse_qsl
 
 from stage_apps import AppError
 from stage_host_socket import SOCKET_ROOT, SOCKET_PATH
+from stage_docker_api_stats import snapshot as stage_stats_snapshot
 CID=re.compile(r"[a-f0-9]{64}\Z")
+CID_REF=re.compile(r"[a-f0-9]{12,64}\Z")
 PROJECT=re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
 PREFIX=re.compile(r"/v[0-9]{1,2}\.[0-9]{1,2}(?=/|$)")
 MAX_CONTAINERS=16
@@ -32,6 +34,10 @@ MAX_LOG_BYTES=64*1024
 MAX_LOG_TAIL=160
 MAX_LOG_SECONDS=5.5
 _LOG_SLOTS=threading.BoundedSemaphore(2)
+_EVENT_SLOTS=threading.BoundedSemaphore(2)
+_STATS_SLOTS=threading.BoundedSemaphore(2)
+MAX_EVENT_SECONDS=18.0
+MAX_STATS_SECONDS=16.0
 
 
 def stage_containers():
@@ -71,6 +77,20 @@ def stage_containers():
             if len(result)>MAX_CONTAINERS:
                 raise AppError("stage_broker_container_limit",503)
     return result
+
+
+def _resolve_stage_item(reference, rows=None):
+    # Docker clients commonly use the first 12 hex characters of an ID.
+    # Resolve only against our ALREADY VERIFIED staging container set.
+    if not isinstance(reference,str) or not CID_REF.fullmatch(reference):
+        raise AppError("invalid_stage_container_reference",400)
+    options=[row for row in (rows if rows is not None else stage_containers())
+             if row["Id"].startswith(reference)]
+    if not options:
+        raise AppError("stage_container_not_registered",404)
+    if len(options)!=1:
+        raise AppError("ambiguous_stage_container_reference",409)
+    return options[0]
 
 
 def _log_request(query):
@@ -183,16 +203,75 @@ def _log_frames(ident,options):
 
 def _stage_logs_for_id(ident,query):
     options=_log_request(query)
-    if not CID.fullmatch(ident):
-        raise AppError("invalid_stage_log_container",400)
-    if ident not in {x["Id"] for x in stage_containers()}:
-        raise AppError("stage_log_container_not_registered",404)
+    try:
+        confirmed=_resolve_stage_item(ident)["Id"]
+    except AppError as error:
+        if error.status==404:
+            raise AppError("stage_log_container_not_registered",404)
+        raise
     if not _LOG_SLOTS.acquire(blocking=False):
         raise AppError("stage_log_read_capacity",429)
     try:
-        return _log_frames(ident,options)
+        return _log_frames(confirmed,options)
     finally:
         _LOG_SLOTS.release()
+
+
+def _event_request(query):
+    if not isinstance(query,str) or len(query)>300:
+        raise AppError("invalid_stage_event_query",400)
+    try:
+        items=parse_qsl(query,keep_blank_values=True,strict_parsing=True,
+                        max_num_fields=4)
+    except ValueError:
+        raise AppError("invalid_stage_event_query",400)
+    opts={}
+    for key,value in items:
+        if key in opts or key not in ("since","until","filters"):
+            raise AppError("unsupported_stage_event_query",400)
+        opts[key]=value
+    for key in ("since","until"):
+        if key in opts and (not opts[key].isascii() or
+            not opts[key].isdecimal() or len(opts[key])>11):
+            raise AppError("invalid_stage_event_time",400)
+    if "filters" in opts:
+        try:
+            filters=json.loads(opts["filters"])
+        except ValueError:
+            raise AppError("invalid_stage_event_filters",400)
+        if not isinstance(filters,dict) or len(filters)>4 or any(
+                key not in ("type","event","container","label") for key in filters):
+            raise AppError("unsupported_stage_event_filters",403)
+        if any(not isinstance(value,(list,dict)) for value in filters.values()):
+            raise AppError("invalid_stage_event_filters",400)
+    return opts
+
+
+def _container_event(row,action):
+    now=time.time()
+    return {"Type":"container","Action":action,"Actor":{
+        "ID":row["Id"],"Attributes":{
+            "name":row["Names"][0],"image":"openserverdesk/stage-only"}},
+        "scope":"local","time":int(now),"timeNano":int(now*1000000000),
+        "id":row["Id"],"status":action,"from":"openserverdesk/stage-only"}
+
+
+def _stats_request(query):
+    if not isinstance(query,str) or len(query)>130:
+        raise AppError("invalid_stage_stats_query",400)
+    try:
+        items=parse_qsl(query,keep_blank_values=True,strict_parsing=True,
+                        max_num_fields=3)
+    except ValueError:
+        raise AppError("invalid_stage_stats_query",400)
+    opts={}
+    for key,value in items:
+        if key in opts or key not in ("stream","one-shot","one_shot"):
+            raise AppError("unsupported_stage_stats_query",400)
+        if value not in ("1","0","true","false"):
+            raise AppError("invalid_stage_stats_boolean",400)
+        opts[key]=value
+    return opts.get("stream","true") in ("1","true")
 
 
 def _normalized_path(path):
@@ -202,8 +281,10 @@ def _normalized_path(path):
     if parsed.netloc or parsed.scheme or parsed.fragment:
         return None
     raw=PREFIX.sub("",parsed.path,count=1)
-    is_log=bool(re.fullmatch(r"/containers/[a-f0-9]{64}/logs",raw))
-    if parsed.query and raw!="/containers/json" and not is_log:
+    is_log=bool(re.fullmatch(r"/containers/[a-f0-9]{12,64}/logs",raw))
+    is_stats=bool(re.fullmatch(r"/containers/[a-f0-9]{12,64}/stats",raw))
+    if (parsed.query and raw not in ("/containers/json","/events")
+            and not is_log and not is_stats):
         return None
     if raw=="/containers/json" and parsed.query:
         # no hostile filters or arbitrary user-directed Docker operations
@@ -245,6 +326,88 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!="HEAD":
             self.wfile.write(raw)
 
+    def _chunked(self,payload):
+        chunk=payload if isinstance(payload,bytes) else payload.encode("utf-8")
+        self.wfile.write(("%x\r\n"%len(chunk)).encode("ascii")+chunk+b"\r\n")
+        self.wfile.flush()
+
+    def _events(self,query):
+        _event_request(query)
+        if not _EVENT_SLOTS.acquire(blocking=False):
+            return self._respond(429,{"message":"stage_event_capacity"})
+        try:
+            # Validate full stage provenance BEFORE returning successful headers.
+            rows=stage_containers()
+            previous={row["Id"]:row for row in rows}
+            self.send_response(200)
+            self.send_header("Content-Type","application/json")
+            self.send_header("Transfer-Encoding","chunked")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Connection","close")
+            self.end_headers()
+            self.close_connection=True
+            deadline=time.monotonic()+MAX_EVENT_SECONDS
+            # Send stage-only initial state to seed the Docker event listener.
+            for row in rows:
+                if row["State"]=="running":
+                    self._chunked(json.dumps(_container_event(row,"start"))+"\n")
+            while time.monotonic()<deadline:
+                time.sleep(min(3,deadline-time.monotonic()))
+                if time.monotonic()>=deadline:
+                    break
+                latest={row["Id"]:row for row in stage_containers()}
+                for ident,row in latest.items():
+                    if ident not in previous:
+                        self._chunked(json.dumps(_container_event(row,"start"))+"\n")
+                    elif row["State"]!=previous[ident]["State"]:
+                        self._chunked(json.dumps(_container_event(
+                            row,"start" if row["State"]=="running" else "die"))+"\n")
+                for ident,row in previous.items():
+                    if ident not in latest:
+                        self._chunked(json.dumps(_container_event(row,"destroy"))+"\n")
+                previous=latest
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError,ConnectionResetError,TimeoutError):
+            self.close_connection=True
+        except (OSError,AppError):
+            self.close_connection=True
+        finally:
+            _EVENT_SLOTS.release()
+
+    def _stats(self,reference,query):
+        streaming=_stats_request(query)
+        item=_resolve_stage_item(reference)
+        if not _STATS_SLOTS.acquire(blocking=False):
+            return self._respond(429,{"message":"stage_stats_capacity"})
+        try:
+            if not streaming:
+                return self._respond(200,stage_stats_snapshot(item))
+            first=stage_stats_snapshot(item)  # validate BEFORE HTTP 200
+            self.send_response(200)
+            self.send_header("Content-Type","application/json")
+            self.send_header("Transfer-Encoding","chunked")
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Connection","close")
+            self.end_headers()
+            self.close_connection=True
+            deadline=time.monotonic()+MAX_STATS_SECONDS
+            self._chunked(json.dumps(first)+"\n")
+            while time.monotonic()<deadline:
+                time.sleep(min(3,deadline-time.monotonic()))
+                if time.monotonic()>=deadline:
+                    break
+                item=_resolve_stage_item(reference)
+                self._chunked(json.dumps(stage_stats_snapshot(item))+"\n")
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError,ConnectionResetError,TimeoutError):
+            self.close_connection=True
+        except (AppError,OSError,ValueError):
+            self.close_connection=True
+        finally:
+            _STATS_SLOTS.release()
+
     def do_GET(self):
         path=_normalized_path(self.path)
         if path=="/_ping":
@@ -256,6 +419,13 @@ class Handler(BaseHTTPRequestHandler):
                 "Os":"linux","Arch":"amd64",
                 "Platform":{"Name":"OpenServerDesk isolated staging only"},
             })
+        if path=="/events":
+            try:
+                return self._events(urlsplit(self.path).query)
+            except AppError as err:
+                return self._respond(err.status,{"message":err.message})
+            except (OSError,ValueError):
+                return self._respond(503,{"message":"stage_events_unavailable"})
         if path=="/info":
             try:
                 rows=stage_containers()
@@ -271,7 +441,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._respond(200,stage_containers())
             except (AppError,OSError,ValueError):
                 return self._respond(503,{"message":"stage_inventory_unavailable"})
-        if path and re.fullmatch(r"/containers/[a-f0-9]{64}/logs",path):
+        if path and re.fullmatch(r"/containers/[a-f0-9]{12,64}/stats",path):
+            reference=path[len("/containers/"):-len("/stats")]
+            try:
+                return self._stats(reference,urlsplit(self.path).query)
+            except AppError as err:
+                return self._respond(err.status,{"message":err.message})
+            except (OSError,ValueError,subprocess.SubprocessError):
+                return self._respond(503,{"message":"stage_stats_reader_unavailable"})
+        if path and re.fullmatch(r"/containers/[a-f0-9]{12,64}/logs",path):
             ident=path[len("/containers/"):-len("/logs")]
             try:
                 body=_stage_logs_for_id(ident,urlsplit(self.path).query)
@@ -282,15 +460,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._respond(503,{"message":"stage_log_reader_unavailable"})
         if path and path.startswith("/containers/") and path.endswith("/json"):
             ident=path[len("/containers/"):-len("/json")]
-            if not CID.fullmatch(ident):
-                return self._respond(404,{"message":"not_found"})
             try:
-                match=next((x for x in stage_containers()
-                            if x["Id"]==ident),None)
-            except (AppError,OSError,ValueError):
+                match=_resolve_stage_item(ident)
+            except AppError as error:
+                return self._respond(error.status,{"message":error.message})
+            except (OSError,ValueError):
                 return self._respond(503,{"message":"stage_inventory_unavailable"})
-            if match is None:
-                return self._respond(404,{"message":"not_found"})
             return self._respond(200,{
                 "Id":match["Id"],"Name":match["Names"][0],
                 "Config":{"Image":match["Image"],"Labels":match["Labels"]},
