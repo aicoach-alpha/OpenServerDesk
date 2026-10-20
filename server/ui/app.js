@@ -664,6 +664,11 @@ async function stageRefresh() {
     storeGeneralRefresh();
     appstorePilotRefresh();
     if (!casaosStoreData) appstoreRefresh();
+    if (appstoreSelectedId && appstoreCompatibilityItem(appstoreSelectedId)?.sandbox_plan_supported) {
+      Promise.all([storeGeneralPreflight(appstoreSelectedId),
+                   storeCompilerPreview(appstoreSelectedId)])
+        .then(appstoreSelectionSync).catch(()=>appstoreSelectionSync());
+    }
     for (const name of ["stage-compose-checkpoint", "stage-compose-checkpoints-refresh",
                         "stage-compose-recover"])
       $(name).disabled=!stageCanWrite;
@@ -1218,6 +1223,9 @@ function appstoreSelectionSync() {
   const prepare=compiledPrepareId===id || generalPrepareSelection===id;
   $("store-selection-prepare").disabled=!stageCanWrite||!supported||!prepare;
   $("store-selection-install").disabled=!stageCanWrite||!supported||!ready;
+  $("store-selection-prepare").textContent=stageCanWrite?"Prepare image":"Prepare (login required)";
+  $("store-selection-install").textContent=stageCanWrite?"Install in staging":"Install (login required)";
+  $("store-selection-manage").textContent=stageToken?"Manage installed apps":"Connect staging";
   $("store-selection-status").textContent=!supported
     ? "Additional compatibility work required: "+(compat?.reason||"unverified")
     : !stageToken
@@ -1316,7 +1324,7 @@ function appstoreRender() {
     cell(tr,app.store);
     cell(tr,app.service_count);
     const status=cell(tr,appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
-      ? "Sandbox plan ready":"Additional support needed");
+      ? "Sandbox plan available":"Additional support needed");
     status.className=appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
       ? "running":"inactive";
     const actions=document.createElement("td");
@@ -1373,7 +1381,8 @@ $("store-selection-install").addEventListener("click",()=>{
     $("store-general-install").click();
 });
 $("store-selection-manage").addEventListener("click",()=>{
-  workspaceView("apps");
+  workspaceView(stageToken?"apps":"manage");
+  if (!stageToken) $("stage-token").focus();
 });
 
 $("appstore-search").addEventListener("input",()=>{

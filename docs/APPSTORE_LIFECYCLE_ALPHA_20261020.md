@@ -1,4 +1,4 @@
-# OpenServerDesk 0.7.0-alpha.5 — App Store & staged lifecycle
+# OpenServerDesk 0.7.0-alpha.6 — App Store & staged lifecycle
 
 ## Shipped implementation
 - 726 CasaOS metadata records exposed through a **sanitized read-only** App
@@ -34,3 +34,12 @@
 - Origin: 192.168.31.31:18691
 - Parallel staging 127.0.0.1:18690 and six CasaOS services remain online
 - New user-facing App Store catalog browsing does not grant mutation access.
+
+## UAT and operator clarity
+
+One public browser test validated all 726 catalog records, 576 supported
+static sandbox plans, compatibility filtering and read-only host inventory.
+Without an authorized staging token the prepare/install buttons must remain
+disabled and explicitly say login required. A dedicated Connect staging control
+navigates to the existing token input; role-based API authorization is still
+strictly enforced on every mutating lifecycle request.
