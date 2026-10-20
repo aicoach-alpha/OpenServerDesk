@@ -93,16 +93,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+    def _stage_hosts(self):
+        # Only the deployed Alpha tailnet hostname is accepted through HTTPS.
+        # Keep staging and localhost hosts unchanged; reject arbitrary proxies.
+        port=str(self.server.server_port)
+        hosts={"127.0.0.1:"+port,"localhost:"+port}
+        if os.environ.get("OSD_DEPLOYMENT_TIER")=="alpha" and port=="18691":
+            hosts.add("andre-nas.tail189d24.ts.net:8445")
+        return hosts
+
+    def _stage_origins(self):
+        hosts=self._stage_hosts()
+        origins={"http://"+host for host in hosts
+                 if host.startswith(("127.0.0.1:", "localhost:"))}
+        if "andre-nas.tail189d24.ts.net:8445" in hosts:
+            origins.add("https://andre-nas.tail189d24.ts.net:8445")
+        return origins
+
     def _stage_web(self):
         # A scoped HttpOnly cookie is issued only after authenticated operator
         # API access; never forward operator tokens or cookies upstream.
         host=self.headers.get("Host","")
-        allowed={"127.0.0.1:"+str(self.server.server_port),
-                 "localhost:"+str(self.server.server_port)}
+        allowed=self._stage_hosts()
         if host not in allowed:
             return self.respond(403,{"error":"invalid_stage_web_host"})
         origin=self.headers.get("Origin")
-        if origin and origin not in {"http://"+x for x in allowed}:
+        if origin and origin not in self._stage_origins():
             return self.respond(403,{"error":"invalid_stage_web_origin"})
         try:
             try:size=int(self.headers.get("Content-Length","0"))
@@ -480,13 +496,9 @@ class Handler(BaseHTTPRequestHandler):
         return self.respond(404, {"error":"not_found"})
     def _stage_auth(self):
         origin = self.headers.get("Origin")
-        allowed = {
-            "http://127.0.0.1:" + str(self.server.server_port),
-            "http://localhost:" + str(self.server.server_port),
-        }
+        allowed = self._stage_origins()
         host = self.headers.get("Host", "")
-        if host not in ("127.0.0.1:" + str(self.server.server_port),
-                        "localhost:" + str(self.server.server_port)):
+        if host not in self._stage_hosts():
             raise AppError("invalid_stage_host_header", 403)
         if origin and origin not in allowed:
             raise AppError("invalid_stage_origin", 403)
