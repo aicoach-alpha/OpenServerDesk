@@ -283,3 +283,19 @@ a{color:#88dfd6}
   background:#102333;color:#e7fff5;border:1px solid #4b8078;
   border-radius:8px}
 .stage-version-select:focus-visible{outline:2px solid #8ce7ce}
+
+
+/* Alpha .35: stage-only orphan housekeeping kept away from lifecycle rows. */
+.stage-housekeeping{margin:20px 0 24px;padding:12px 16px;border:1px solid #375063;
+  border-radius:12px;background:#122135}
+.stage-housekeeping>summary{cursor:pointer;font-weight:700;color:#d7e8f1;
+  padding:6px 0;list-style-position:inside}
+.stage-housekeeping>p{margin:10px 0;font-size:12px;line-height:1.55}
+.stage-housekeeping .stage-control{margin:12px 0}
+.stage-housekeeping .stage-housekeeping-pages{display:flex;gap:14px;align-items:center;
+  justify-content:flex-end;margin:12px 0 3px;flex-wrap:wrap}
+.stage-housekeeping .stage-housekeeping-pages span{color:#a8becd;font-size:12px;
+  font-variant-numeric:tabular-nums}
+.stage-housekeeping td:last-child{white-space:nowrap}
+@media(max-width:700px){.stage-housekeeping .stage-housekeeping-pages{
+  justify-content:space-between}}

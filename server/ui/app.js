@@ -1765,6 +1765,58 @@ async function storeCompilerPreview(id) {
 // control state here only improves the operator experience.
 let compiledSelectedId=null;
 let compiledPrepareId=null;
+const COMPILED_HOUSEKEEPING_PAGE_SIZE=8;
+let compiledHousekeepingDirectories=[];
+let compiledHousekeepingPage=0;
+function compiledHousekeepingPageData(directories,query,page){
+  const value=String(query||"").trim().toLowerCase();
+  const filtered=directories.filter(id=>id.toLowerCase().includes(value));
+  const pages=Math.ceil(filtered.length/COMPILED_HOUSEKEEPING_PAGE_SIZE);
+  const current=pages===0?0:Math.min(Math.max(0,page),pages-1);
+  return {entries:filtered.slice(current*COMPILED_HOUSEKEEPING_PAGE_SIZE,
+               (current+1)*COMPILED_HOUSEKEEPING_PAGE_SIZE),
+          total:filtered.length,pages,current};
+}
+function compiledHousekeepingRender(){
+  const query=$("compiled-housekeeping-search").value;
+  const view=compiledHousekeepingPageData(
+    compiledHousekeepingDirectories,query,compiledHousekeepingPage);
+  compiledHousekeepingPage=view.current;
+  const holder=$("compiled-housekeeping-list");
+  holder.replaceChildren();
+  for(const project of view.entries){
+    const row=document.createElement("tr");
+    cell(row,project);
+    cell(row,"Unknown content is preserved. Cleanup requires an empty, idle, verified stage folder.");
+    const actions=document.createElement("td");
+    actions.appendChild(stageButton("Clean only if empty",!stageCanWrite,
+      ()=>compiledCleanupEmpty(project)));
+    row.appendChild(actions);
+    holder.appendChild(row);
+  }
+  $("compiled-housekeeping-total").textContent=
+    String(compiledHousekeepingDirectories.length);
+  $("compiled-housekeeping-status").textContent=
+    view.total+" matching of "+compiledHousekeepingDirectories.length+
+    " unregistered directories. No automatic deletions.";
+  $("compiled-housekeeping-page").textContent=
+    "Page "+(view.pages?view.current+1:0)+" of "+view.pages;
+  $("compiled-housekeeping-prev").disabled=view.pages<=1 || view.current<=0;
+  $("compiled-housekeeping-next").disabled=view.pages<=1 ||
+                                   view.current>=view.pages-1;
+}
+$("compiled-housekeeping-search").addEventListener("input",()=>{
+  compiledHousekeepingPage=0;
+  compiledHousekeepingRender();
+});
+$("compiled-housekeeping-prev").addEventListener("click",()=>{
+  if(compiledHousekeepingPage>0)compiledHousekeepingPage--;
+  compiledHousekeepingRender();
+});
+$("compiled-housekeeping-next").addEventListener("click",()=>{
+  compiledHousekeepingPage++;
+  compiledHousekeepingRender();
+});
 async function compiledApi(method,payload){
   if(!stageToken)throw Error("Authenticate to use the App Store");
   const opts={method,cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}};
@@ -1898,19 +1950,12 @@ async function compiledRefresh(){
     if(!Array.isArray(orphaned) || orphaned.some(id=>
         typeof id!=="string" || !/^osd-compiled-[a-f0-9]{12}$/.test(id)))
       throw Error("Invalid unregistered stage directory report");
-    // Show only a small housekeeping sample, not an exhaustive directory
-    // browser. The operator explicitly approves any candidate removal.
-    for(const project of orphaned.slice(0,6)){
-      const row=document.createElement("tr");
-      cell(row,project);
-      cell(row,"Unregistered stage folder · may contain retained data");
-      cell(row,"Not managed — no automatic deletion");
-      cell(row,"—");
-      const controls=document.createElement("td");
-      controls.appendChild(stageButton("Clean only if empty",!stageCanWrite,
-        ()=>compiledCleanupEmpty(project)));
-      row.appendChild(controls);body.appendChild(row);
-    }
+    // Render the full set on a separate paginated, collapsible panel.
+    // Managed service rows remain exclusively in the lifecycle table.
+    if(new Set(orphaned).size!==orphaned.length ||
+       orphaned.length>10000)throw Error("Duplicate or unbounded stage directories");
+    compiledHousekeepingDirectories=orphaned.slice().sort();
+    compiledHousekeepingRender();
     $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
       state.capacity.installed+"/"+state.capacity.limit+" staging slots; "+
       state.capacity.services_in_use+"/"+state.capacity.service_limit+

@@ -224,6 +224,27 @@
     <thead><tr><th>App / Project</th><th>Services</th><th>Project health</th><th>Revision</th><th>Actions</th></tr></thead>
     <tbody id="compiled-list"></tbody>
   </table></div>
+  <details id="compiled-housekeeping" class="stage-housekeeping">
+    <summary>Staging housekeeping — <span id="compiled-housekeeping-total">0</span> unregistered directories</summary>
+    <p>Inspect historical staging folders separately from managed applications.
+       This action can remove only an old, verified-empty preparation folder.
+       It never removes retained application data or CasaOS production files.</p>
+    <div class="stage-control">
+      <label for="compiled-housekeeping-search">Filter directory ID</label>
+      <input id="compiled-housekeeping-search" type="search" maxlength="80"
+             autocomplete="off" placeholder="Search staging directory…" />
+    </div>
+    <p id="compiled-housekeeping-status" role="status">Authenticate to review staging housekeeping.</p>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Unregistered staging directory</th><th>Safety restriction</th><th>Action</th></tr></thead>
+      <tbody id="compiled-housekeeping-list"></tbody>
+    </table></div>
+    <div class="stage-housekeeping-pages">
+      <button type="button" id="compiled-housekeeping-prev" class="secondary-button" disabled>Previous</button>
+      <span id="compiled-housekeeping-page" aria-live="polite">Page 0 of 0</span>
+      <button type="button" id="compiled-housekeeping-next" class="secondary-button" disabled>Next</button>
+    </div>
+  </details>
   <h3>CasaOS store installation coverage</h3>
   <p id="store-general-coverage" role="status">Coverage not loaded. Staging only; static eligibility is not runtime parity.</p>
   <h3>Actual App Store install pilot (sandbox only)</h3>
