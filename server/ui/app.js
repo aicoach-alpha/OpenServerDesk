@@ -1266,6 +1266,10 @@ function appstoreSelectionSync() {
   $("store-selection-prepare").textContent=stageCanWrite?"Prepare image":"Prepare (login required)";
   $("store-selection-install").textContent=stageCanWrite?"Install in staging":"Install (login required)";
   $("store-selection-manage").textContent=stageToken?"Manage installed apps":"Connect staging";
+  const broker=$("store-selection-broker");
+  broker.hidden=compat?.install_mode!=="special_host_integration";
+  broker.disabled=!stageToken || broker.hidden;
+  broker.textContent=stageToken?"Inspect host requirements":"Host review (login required)";
   const remediationTexts={
     correct_long_form_readonly_target:
       "The source Compose incorrectly puts :ro inside a long-form target. Correct its catalog metadata; original host logs and media are not imported.",
@@ -1454,6 +1458,35 @@ $("store-selection-install").addEventListener("click",()=>{
 $("store-selection-manage").addEventListener("click",()=>{
   workspaceView(stageToken?"apps":"manage");
   if (!stageToken) $("stage-token").focus();
+});
+$("store-selection-broker").addEventListener("click",async()=>{
+  const id=appstoreSelectedId;
+  if(!id||!stageToken)return;
+  $("appstore-details").textContent="Inspecting stage-only host capability contract…";
+  try{
+    const response=await fetch("/api/v1/stage/host-broker?id="+encodeURIComponent(id),{
+      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+    });
+    const info=await response.json();
+    if(!response.ok)throw Error(info.error||"Host capability inspection failed");
+    if(info.app_id!==id || info.production_mutation_allowed!==false ||
+       info.host_privileged_access!==false ||
+       info.external_hdd_user_data_access!==false ||
+       info.runtime_compatibility_proven!==false ||
+       !Array.isArray(info.granted_host_capabilities) ||
+       info.granted_host_capabilities.length)
+      throw Error("Unexpected host capability contract");
+    const stages=info.stage_readonly_inventory;
+    $("appstore-details").textContent=
+      "Host requirements: "+info.requested_host_capabilities.join(", ").replaceAll("_"," ")+
+      ". Privileged access DENIED; no production app or Nextcloud data access. "+
+      (stages?"Read-only broker: "+stages.running+"/"+stages.total+
+        " verified stage workloads running. ":
+        "No stage-only host interface available. ")+
+      "This inspection does not make the app runtime compatible.";
+  }catch(err){
+    $("appstore-details").textContent="Host capability inspection: "+err.message;
+  }
 });
 
 $("appstore-search").addEventListener("input",()=>{
@@ -1908,10 +1941,13 @@ async function compiledSwitchVersion(project,tag){
       " · "+tag+". Rollback is available where its checkpoint is verified.";
   }catch(err){
     const restored=err.message==="stage_version_change_failed_original_and_data_restored";
+    const incompatible=err.message==="stage_image_runtime_contract_incompatible";
     const needsRecovery=err.message==="stage_version_change_requires_recovery";
-    $("compiled-status").textContent=restored
-      ? "The selected image failed to start. Previous version and staging data were automatically restored. No production apps were changed."
-      : needsRecovery
+    $("compiled-status").textContent=incompatible
+      ? "Version change rejected before shutdown: the cached image has a different startup contract (user, command, ports, volumes or working directory). Current staging app and data remain unchanged."
+      : restored
+        ? "The selected image failed to start. Previous version and staging data were automatically restored. No production apps were changed."
+        : needsRecovery
         ? "Manual recovery required. Do not retry; use the project's Recover control."
         : "Version switch failed: "+err.message;
     if(restored){

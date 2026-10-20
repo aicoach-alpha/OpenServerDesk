@@ -4,6 +4,7 @@ Only locally cached tags within the installed catalog image repository.
 Never accepts arbitrary image URLs, registry changes, image pulls or host
 paths. An immutable catalog digest is intentionally not version-switchable.
 """
+import json
 import re
 from stage_apps import AppError
 from stage_store_compiler import IMAGE, resolve_image
@@ -67,3 +68,43 @@ def current_tags(app_id,immutable_image,tags,resolve=resolve_image):
     return [tag for tag in tags
             if TAG.fullmatch(tag) and
                resolve(repo+":"+tag)==immutable_image]
+
+
+
+# The stage runtime forces UID 1000, drops capabilities, and does not import
+# original environment. Before stopping a healthy app, reject cached images
+# with a different OCI startup contract; those differences require deliberate
+# staging adaptation instead of a blind same-repository version switch.
+RUNTIME_FIELDS=("User","Entrypoint","Cmd","WorkingDir","Volumes","ExposedPorts")
+
+
+def _runtime_contract(image_id, docker_cmd):
+    if not isinstance(image_id,str) or not IMMUTABLE.fullmatch(image_id):
+        raise AppError("invalid_stage_runtime_image",403)
+    raw=docker_cmd("image","inspect","--format","{{json .Config}}",image_id)
+    if not isinstance(raw,str) or len(raw)>120000:
+        raise AppError("stage_image_runtime_metadata_unavailable",503)
+    try:
+        config=json.loads(raw)
+    except (ValueError,TypeError):
+        raise AppError("stage_image_runtime_metadata_unavailable",503)
+    if not isinstance(config,dict):
+        raise AppError("stage_image_runtime_metadata_unavailable",503)
+    # Only these startup fields affect the isolated stage launch contract.
+    # Image Env values are never exported from this broker.
+    return {key:config.get(key) for key in RUNTIME_FIELDS}
+
+
+def check_runtime_contract(previous_id,next_id,docker_cmd):
+    if not all(isinstance(x,str) and IMMUTABLE.fullmatch(x)
+               for x in (previous_id,next_id)):
+        raise AppError("invalid_stage_runtime_image",403)
+    if previous_id==next_id:
+        return {"compatible":True,"changed_fields":[]}
+    current=_runtime_contract(previous_id,docker_cmd)
+    proposed=_runtime_contract(next_id,docker_cmd)
+    changed=[key for key in RUNTIME_FIELDS if current[key]!=proposed[key]]
+    if changed:
+        # Do not expose secret values, only the standard metadata key names.
+        raise AppError("stage_image_runtime_contract_incompatible",409)
+    return {"compatible":True,"changed_fields":[]}

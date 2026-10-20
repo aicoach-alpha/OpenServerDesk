@@ -18,7 +18,7 @@ from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVICES
-from stage_store_versions import cached_versions, current_tags, target_image
+from stage_store_versions import cached_versions, current_tags, target_image, check_runtime_contract
 from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
@@ -1189,6 +1189,13 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
             if updated==manifest:
                 return {"operation":"no_change","app":_summary(project,entry),
                         "production_mutation_allowed":False}
+            # Fail closed before journal, shutdown, data writes or Docker
+            # mutation if an image changes its OCI runtime startup contract.
+            for name,cfg in updated["services"].items():
+                if name in manifest["services"]:
+                    check_runtime_contract(
+                        manifest["services"][name]["image"],
+                        cfg["image"],docker)
             if entry["revision"]>=500:
                 raise AppError("compiled_stage_revision_limit",409)
             target=updated
