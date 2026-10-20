@@ -3,14 +3,53 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OpenServerDesk — Staging Docker Inventory</title>
+<title>OpenServerDesk Alpha — Server Workspace</title>
 <link rel="stylesheet" href="/ui/style.css">
 <script src="/ui/app.js" defer></script>
 </head>
-<body>
-<header><div><div class="eyebrow">STAGING · READ ONLY</div><h1>OpenServerDesk</h1><p>Docker inventory and Compose visibility, directly from the local engine.</p></div><div class="status">Production changes disabled</div></header>
-<main>
-<section class="panel apps-hub" id="apps-hub" aria-label="Unified application center">
+<body data-active-view="overview">
+<div class="app-shell">
+<aside class="app-sidebar" id="app-sidebar" aria-label="Main navigation">
+ <div class="brand-wrap"><div class="brand-mark">O</div><div><strong>OpenServerDesk</strong><span>Server workspace</span></div></div>
+ <div class="nav-caption">WORKSPACE</div>
+ <nav class="app-nav" aria-label="Workspace pages">
+  <button type="button" class="nav-item is-active" data-nav="overview" aria-current="page"><span class="nav-icon">▦</span> Overview</button>
+  <button type="button" class="nav-item" data-nav="apps"><span class="nav-icon">◫</span> Applications</button>
+  <button type="button" class="nav-item" data-nav="store"><span class="nav-icon">▧</span> App Store</button>
+  <button type="button" class="nav-item" data-nav="manage"><span class="nav-icon">⚙</span> Manage staging</button>
+ </nav>
+ <div class="nav-caption">SYSTEM</div>
+ <nav class="app-nav" aria-label="System pages">
+  <button type="button" class="nav-item" data-nav="monitor"><span class="nav-icon">◷</span> Monitoring</button>
+  <button type="button" class="nav-item" data-nav="admin"><span class="nav-icon">▤</span> Release &amp; migration</button>
+ </nav>
+ <div class="sidebar-bottom"><span class="pulse-dot"></span> Alpha · Parallel install<small>CasaOS production is untouched</small></div>
+</aside>
+<div class="app-workspace">
+<header class="app-topbar">
+ <div class="topbar-left"><button type="button" id="nav-toggle" class="icon-button" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+ <div><p class="topbar-eyebrow">YOUR NAS / ANDRE-NAS</p><h1 id="page-title">Overview</h1></div></div>
+ <div class="topbar-actions"><span class="safe-indicator"><span class="pulse-dot"></span> Alpha online</span>
+ <button type="button" id="topbar-connect" class="secondary-button">Staging access</button></div>
+</header>
+<main id="workspace">
+<section class="overview-landing" data-view="overview" id="overview-panel">
+ <div class="welcome-panel"><div class="welcome-copy"><span class="welcome-eyebrow">WELCOME TO YOUR SERVER</span>
+ <h2>Everything running.<br><em>One clear workspace.</em></h2>
+ <p>Monitor your NAS, explore installed apps, and manage isolated staging workloads without affecting CasaOS production.</p>
+ <div class="welcome-actions"><button type="button" data-go="apps">View applications →</button>
+ <button type="button" data-go="store" class="secondary-button">Explore App Store</button></div></div>
+ <div class="welcome-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core">OSD</div><div class="orbit-node n1"></div><div class="orbit-node n2"></div></div></div>
+ <div class="overview-kpis" aria-label="Server at a glance">
+  <div class="kpi-card"><span class="kpi-symbol">▣</span><span>Docker containers</span><strong id="overview-total">—</strong><small>Local engine · read only</small></div>
+  <div class="kpi-card"><span class="kpi-symbol green">●</span><span>Running containers</span><strong id="overview-running">—</strong><small>Currently active</small></div>
+  <div class="kpi-card"><span class="kpi-symbol purple">⬡</span><span>Compose projects</span><strong id="overview-compose">—</strong><small>Docker inventory</small></div>
+  <div class="kpi-card"><span class="kpi-symbol orange">◴</span><span>Memory in use</span><strong id="overview-memory">—</strong><small>Live host memory</small></div>
+ </div>
+ <div class="overview-shortcuts"><div class="shortcut-head"><div><h2>Your applications</h2><p>Quick access to installed workloads</p></div><button type="button" class="text-button" data-go="apps">View all →</button></div>
+ <div id="overview-app-preview" class="preview-grid"><p>Loading Docker inventory…</p></div></div>
+</section>
+<section data-view="apps" hidden class="panel apps-hub" id="apps-hub" aria-label="Unified application center">
   <div class="toolbar">
     <div><h2>Apps Hub — Install &amp; Manage</h2>
       <p>Browse installed Docker apps, manage authorized staging apps, and discover CasaOS Store apps in one place.</p>
@@ -34,7 +73,7 @@
     <p class="hub-boundary">Docker inventory is read-only. Install, update and lifecycle controls affect authorized isolated staging projects only. CasaOS production and Nextcloud data remain unchanged.</p>
   </div>
 </section>
-<section class="panel progress-panel" aria-label="M1 weighted acceptance progress">
+<section data-view="admin" hidden class="panel progress-panel" aria-label="M1 weighted acceptance progress">
   <div class="toolbar">
     <div><h2>M1 delivery progress — verified scope only</h2>
       <p id="progress-updated" role="status">Loading latest available historical report…</p>
@@ -55,7 +94,7 @@
     </div>
   </div>
 </section>
-<section class="panel" aria-label="Migration cutover readiness">
+<section data-view="admin" hidden class="panel" aria-label="Migration cutover readiness">
   <div class="toolbar">
     <div>
       <h2>CasaOS replacement cutover — read-only plan</h2>
@@ -76,7 +115,7 @@
     <p id="cutover-next">Do not stop CasaOS or modify user data.</p>
   </div>
 </section>
-<section class="panel" aria-label="Host resource metrics">
+<section data-view="overview" class="panel" aria-label="Host resource metrics">
   <div class="toolbar">
     <div><h2>Host monitoring</h2>
       <p id="host-status-message">Loading live NAS health data…</p></div>
@@ -94,7 +133,7 @@
     metrics. Only the system disk and SSD are inspected; the external
     Nextcloud user-data HDD is explicitly excluded.</p></div>
 </section>
-<section class="panel" aria-label="CasaOS Compose compatibility baseline">
+<section data-view="admin" hidden class="panel" aria-label="CasaOS Compose compatibility baseline">
   <div class="toolbar">
     <div><h2>CasaOS app compatibility baseline</h2>
       <p id="parity-message">Reading safe platform Compose definitions only…</p>
@@ -112,7 +151,7 @@
     Compose features in isolated preproduction testing. The application's
     original data and Nextcloud external HDD are never copied or inspected.</p></div>
 </section>
-<section class="panel" id="appstore-panel" aria-label="CasaOS App Store compatibility">
+<section data-view="store" hidden class="panel" id="appstore-panel" aria-label="CasaOS App Store compatibility">
  <div class="toolbar">
   <div><h2>CasaOS App Store</h2>
    <p>Browse the real local CasaOS and community store cache.
@@ -178,7 +217,7 @@
   <div id="appstore-pilot-apps"></div>
  </div>
 </section>
-<section class="panel stage-apps" id="stage-app-management" aria-label="Isolated staged Docker application lifecycle">
+<section data-view="manage" hidden class="panel stage-apps" id="stage-app-management" aria-label="Isolated staged Docker application lifecycle">
   <div class="toolbar">
     <div><h2>Stage app management</h2>
       <p>Authenticated install, start, stop, restart and removal of owned,
@@ -263,7 +302,7 @@
     <div id="stage-checkpoints" class="stage-files-list"></div>
   </div>
 </section>
-<section class="panel" aria-label="Isolated multi-service topology management">
+<section data-view="manage" hidden class="panel" aria-label="Isolated multi-service topology management">
  <div class="toolbar">
   <div><h2>Multi-service Compose — isolated staging</h2>
   <p>Two or three dependent services using offline BusyBox containers only.
@@ -287,12 +326,12 @@
   </table></div>
  </div>
 </section>
-<section class="stats" aria-label="Docker status">
+<section data-view="monitor" hidden class="stats" aria-label="Docker status">
 <div class="stat"><span>Containers</span><strong id="total">—</strong></div>
 <div class="stat"><span>Running</span><strong id="running">—</strong></div>
 <div class="stat"><span>Compose projects</span><strong id="projects">—</strong></div>
 </section>
-<section class="panel" aria-label="Migration data coverage">
+<section data-view="admin" hidden class="panel" aria-label="Migration data coverage">
 <div class="toolbar"><div><h2>Migration data coverage</h2>
 <p id="coverage-message" role="status">Loading read-only assessment…</p>
 </div><div class="status" id="coverage-status">Not approved for migration</div></div>
@@ -304,12 +343,15 @@
 <div><span>Shared writable bind sources</span><strong id="shared-binds">—</strong></div>
 </div>
 </section>
-<section class="panel">
+<section data-view="monitor" hidden class="panel">
 <div class="toolbar"><div><h2>Containers and resource use</h2><p id="message" role="status">Loading live inventory…</p></div><button type="button" id="refresh">Refresh</button></div>
 <p id="docker-resources-status" role="status">CPU and RAM counters read only; no container logs or user-data mounts.</p>
 <div class="table-scroll"><table><thead><tr><th>Name</th><th>Image</th><th>State</th><th>Compose project</th><th>Ports</th><th>CPU</th><th>Memory used</th><th>PIDs</th></tr></thead><tbody id="containers"></tbody></table></div>
 </section>
-<footer>Staging interface. Container management, migration, and production cutover are not enabled.</footer>
+<footer>OpenServerDesk Alpha · Parallel installation · Production cutover disabled.</footer>
 </main>
+</div>
+</div>
+<div id="mobile-nav-backdrop" hidden></div>
 </body>
 </html>

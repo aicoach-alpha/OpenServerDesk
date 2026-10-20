@@ -1,4 +1,97 @@
 const $ = id => document.getElementById(id);
+// Task-based workspace: one page at a time, all existing API actions preserved.
+const workspaceTitles={
+  overview:"Overview",apps:"Applications",store:"App Store",
+  manage:"Manage staging",monitor:"Monitoring",admin:"Release & migration"
+};
+function workspaceView(name,changeHash=true){
+  if (!Object.prototype.hasOwnProperty.call(workspaceTitles,name))name="overview";
+  document.querySelectorAll("#workspace > [data-view]").forEach(panel=>{
+    panel.hidden=panel.dataset.view!==name;
+  });
+  document.body.dataset.activeView=name;
+  document.querySelectorAll("[data-nav]").forEach(button=>{
+    const active=button.dataset.nav===name;
+    button.classList.toggle("is-active",active);
+    if(active)button.setAttribute("aria-current","page");
+    else button.removeAttribute("aria-current");
+  });
+  $("page-title").textContent=workspaceTitles[name];
+  document.title="OpenServerDesk Alpha · "+workspaceTitles[name];
+  document.body.classList.remove("nav-open");
+  $("nav-toggle").setAttribute("aria-expanded","false");
+  $("mobile-nav-backdrop").hidden=true;
+  if(changeHash && window.location.hash!=="#"+name)
+    window.history.replaceState(null,"","#"+name);
+  window.scrollTo({top:0,behavior:"instant"});
+}
+document.querySelectorAll("[data-nav]").forEach(button=>{
+  button.addEventListener("click",()=>workspaceView(button.dataset.nav));
+});
+document.querySelectorAll("[data-go]").forEach(button=>{
+  button.addEventListener("click",()=>workspaceView(button.dataset.go));
+});
+$("nav-toggle").addEventListener("click",()=>{
+  const open=!document.body.classList.contains("nav-open");
+  document.body.classList.toggle("nav-open",open);
+  $("nav-toggle").setAttribute("aria-expanded",String(open));
+  $("mobile-nav-backdrop").hidden=!open;
+});
+$("mobile-nav-backdrop").addEventListener("click",()=>{
+  document.body.classList.remove("nav-open");
+  $("nav-toggle").setAttribute("aria-expanded","false");
+  $("mobile-nav-backdrop").hidden=true;
+});
+$("topbar-connect").addEventListener("click",()=>{
+  workspaceView("manage");
+  $("stage-token").focus();
+});
+window.addEventListener("hashchange",()=>{
+  workspaceView(window.location.hash.slice(1),false);
+});
+workspaceView(window.location.hash.slice(1)||"overview",false);
+
+function renderOverviewFromInventory(data){
+  if(!data || data.source!=="local_docker_engine_read_only" ||
+     !Array.isArray(data.containers))return;
+  $("overview-total").textContent=String(data.container_count);
+  $("overview-running").textContent=String(data.states.running||0);
+  $("overview-compose").textContent=String(data.compose_projects.length);
+  const projects=new Map();
+  for(const app of data.containers){
+    const name=app.compose_project||app.name||"Unnamed container";
+    if(!projects.has(name))projects.set(name,[]);
+    projects.get(name).push(app);
+  }
+  const preview=$("overview-app-preview");
+  preview.replaceChildren();
+  for(const [name,items] of [...projects].sort((a,b)=>
+      a[0].localeCompare(b[0])).slice(0,6)){
+    const card=document.createElement("article");
+    card.className="preview-app";
+    const label=document.createElement("strong");
+    label.textContent=name;
+    label.title=name;
+    const state=document.createElement("small");
+    const count=items.filter(item=>item.state==="running").length;
+    state.textContent=count+"/"+items.length+" running · Docker read-only";
+    card.append(label,state);
+    preview.appendChild(card);
+  }
+  if(!projects.size)preview.textContent="No Docker apps discovered.";
+}
+async function overviewMemoryRefresh(){
+  try{
+    const response=await fetch("/api/v1/system/status",{cache:"no-store"});
+    if(!response.ok)throw Error("Host metrics unavailable");
+    const data=await response.json();
+    if(data.source!=="local_linux_readonly" || data.production_modified!==false)
+      throw Error("Unexpected server metric scope");
+    $("overview-memory").textContent=data.memory.used_percent.toFixed(1)+"%";
+  }catch(error){$("overview-memory").textContent="—";}
+}
+overviewMemoryRefresh();
+
 function cell(row, value) {
   const td = document.createElement("td");
   td.textContent = value || "—";
@@ -12,6 +105,7 @@ async function refresh() {
     const response = await fetch("/api/v1/docker/containers", {cache: "no-store"});
     if (!response.ok) throw Error("Inventory unavailable (" + response.status + ")");
     const data = await response.json();
+    renderOverviewFromInventory(data);
     $("total").textContent = data.container_count;
     $("running").textContent = data.states.running || 0;
     $("projects").textContent = data.compose_projects.length;
@@ -147,7 +241,7 @@ let stageCanWrite = false;
 let hubDockerData=null;
 let hubStageData=null;
 let hubView="installed";
-let hubLimit=36;
+let hubLimit=12;
 const hubDestinations={
   docker:"stage-apps-list",
   compose:"stage-compose-list",
@@ -158,6 +252,7 @@ const hubDestinations={
 function hubNavigate(id) {
   const target=$(id);
   if (!target)return;
+  if (target.closest("[data-view]"))workspaceView(target.closest("[data-view]").dataset.view);
   target.scrollIntoView({behavior:"smooth",block:"start"});
   target.setAttribute("tabindex","-1");
   target.focus({preventScroll:true});
@@ -290,6 +385,7 @@ async function hubRefresh(){
         data.container_count!==data.containers.length)
       throw Error("Invalid host Docker inventory scope");
     hubDockerData=data;
+    renderOverviewFromInventory(data);
   }catch(err){
     hubDockerData=null;
     $("hub-status").textContent="Host Docker inventory: "+err.message;
@@ -318,20 +414,20 @@ async function hubRefresh(){
 }
 $("hub-refresh").addEventListener("click",hubRefresh);
 $("hub-tab-installed").addEventListener("click",()=>{
-  hubView="installed";hubLimit=36;
+  hubView="installed";hubLimit=12;
   $("hub-tab-installed").setAttribute("aria-pressed","true");
   $("hub-tab-store").setAttribute("aria-pressed","false");
   hubRender();
 });
 $("hub-tab-store").addEventListener("click",async()=>{
-  hubView="store";hubLimit=36;
+  hubView="store";hubLimit=12;
   $("hub-tab-store").setAttribute("aria-pressed","true");
   $("hub-tab-installed").setAttribute("aria-pressed","false");
   if (stageToken&&!casaosStoreData)await appstoreRefresh();
   hubRender();
 });
-$("hub-search").addEventListener("input",()=>{hubLimit=36;hubRender();});
-$("hub-more").addEventListener("click",()=>{hubLimit+=36;hubRender();});
+$("hub-search").addEventListener("input",()=>{hubLimit=12;hubRender();});
+$("hub-more").addEventListener("click",()=>{hubLimit+=12;hubRender();});
 hubRefresh();
 
 async function stageRequest(method, body) {
