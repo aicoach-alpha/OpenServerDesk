@@ -514,6 +514,30 @@ class Server(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
             self._slots.release()
 
 
+def _activated_systemd_socket():
+    """Borrow PID-verified systemd fd 3, preserving the mounted socket inode."""
+    fds=os.environ.get("LISTEN_FDS")
+    if not fds:
+        return None
+    pid=os.environ.get("LISTEN_PID","")
+    if fds!="1" or pid!=str(os.getpid()):
+        raise RuntimeError("broker_untrusted_socket_activation")
+    accepted=socket.fromfd(3,socket.AF_UNIX,socket.SOCK_STREAM)
+    try:
+        if (accepted.family!=socket.AF_UNIX or
+            accepted.getsockname()!=str(SOCKET_PATH) or
+            accepted.getsockopt(socket.SOL_SOCKET,socket.SO_ACCEPTCONN)!=1):
+            raise RuntimeError("broker_socket_activation_mismatch")
+        stat_info=SOCKET_PATH.lstat()
+        if (not stat.S_ISSOCK(stat_info.st_mode) or stat_info.st_uid!=1000
+            or stat_info.st_mode & 0o077):
+            raise RuntimeError("broker_socket_activation_permissions")
+        return accepted
+    except Exception:
+        accepted.close()
+        raise
+
+
 def serve_forever():
     if os.geteuid()!=1000:
         raise RuntimeError("broker_requires_andre_uid_1000")
@@ -522,6 +546,15 @@ def serve_forever():
     SOCKET_ROOT.mkdir(mode=0o700,exist_ok=True)
     if SOCKET_ROOT.stat().st_uid!=1000 or SOCKET_ROOT.stat().st_mode & 0o077:
         raise RuntimeError("broker_socket_root_permissions")
+    activated=_activated_systemd_socket()
+    if activated is not None:
+        # The socket unit owns this inode for the lifetime of the .socket
+        # service. Broker restarts must NOT unlink/rebind the mounted socket.
+        with Server(str(SOCKET_PATH),Handler,bind_and_activate=False) as server:
+            server.socket.close()  # replace unbound placeholder with fd 3
+            server.socket=activated
+            server.serve_forever(poll_interval=0.2)
+        return
     try:
         st=SOCKET_PATH.lstat()
     except FileNotFoundError:

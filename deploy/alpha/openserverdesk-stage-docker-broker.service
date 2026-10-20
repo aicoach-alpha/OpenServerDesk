@@ -1,12 +1,13 @@
 [Unit]
 Description=OpenServerDesk stage-owned read-only Docker metadata facade (Dozzle pilot)
-After=network.target
+Requires=openserverdesk-stage-docker-broker.socket
+After=network.target openserverdesk-stage-docker-broker.socket
 Before=openserverdesk-alpha.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/andre/openserverdesk-alpha/releases/0.7.0-alpha.21/server
-ExecStart=/usr/bin/python3 -B /home/andre/openserverdesk-alpha/releases/0.7.0-alpha.21/server/stage_docker_api_broker.py
+WorkingDirectory=/home/andre/openserverdesk-alpha/releases/0.7.0-alpha.22/server
+ExecStart=/usr/bin/python3 -B /home/andre/openserverdesk-alpha/releases/0.7.0-alpha.22/server/stage_docker_api_broker.py
 Restart=on-failure
 RestartSec=3
 UMask=0077
