@@ -10,6 +10,30 @@
 <body>
 <header><div><div class="eyebrow">STAGING · READ ONLY</div><h1>OpenServerDesk</h1><p>Docker inventory and Compose visibility, directly from the local engine.</p></div><div class="status">Production changes disabled</div></header>
 <main>
+<section class="panel apps-hub" id="apps-hub" aria-label="Unified application center">
+  <div class="toolbar">
+    <div><h2>Apps Hub — Install &amp; Manage</h2>
+      <p>Browse installed Docker apps, manage authorized staging apps, and discover CasaOS Store apps in one place.</p>
+    </div>
+    <button type="button" id="hub-refresh">Refresh apps</button>
+  </div>
+  <div class="progress-content">
+    <div class="hub-toolbar">
+      <div class="hub-tabs" role="group" aria-label="Apps Hub view">
+        <button id="hub-tab-installed" type="button" aria-pressed="true">Installed</button>
+        <button id="hub-tab-store" type="button" aria-pressed="false">App Store</button>
+      </div>
+      <label class="hub-search-label" for="hub-search">Search apps
+        <input id="hub-search" type="search" placeholder="App, project, service or category…" autocomplete="off">
+      </label>
+    </div>
+    <p id="hub-status" role="status">Loading installed Docker applications…</p>
+    <div class="hub-metrics" id="hub-metrics"></div>
+    <div class="hub-grid" id="hub-cards" aria-live="polite"></div>
+    <button type="button" id="hub-more" hidden>Show more</button>
+    <p class="hub-boundary">Docker inventory is read-only. Install, update and lifecycle controls affect authorized isolated staging projects only. CasaOS production and Nextcloud data remain unchanged.</p>
+  </div>
+</section>
 <section class="panel progress-panel" aria-label="M1 weighted acceptance progress">
   <div class="toolbar">
     <div><h2>M1 delivery progress — verified scope only</h2>
@@ -88,7 +112,7 @@
     Compose features in isolated preproduction testing. The application's
     original data and Nextcloud external HDD are never copied or inspected.</p></div>
 </section>
-<section class="panel" aria-label="CasaOS App Store compatibility">
+<section class="panel" id="appstore-panel" aria-label="CasaOS App Store compatibility">
  <div class="toolbar">
   <div><h2>CasaOS App Store</h2>
    <p>Browse the real local CasaOS and community store cache.
@@ -154,7 +178,7 @@
   <div id="appstore-pilot-apps"></div>
  </div>
 </section>
-<section class="panel stage-apps" aria-label="Isolated staged Docker application lifecycle">
+<section class="panel stage-apps" id="stage-app-management" aria-label="Isolated staged Docker application lifecycle">
   <div class="toolbar">
     <div><h2>Stage app management</h2>
       <p>Authenticated install, start, stop, restart and removal of owned,

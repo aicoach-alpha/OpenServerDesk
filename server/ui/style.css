@@ -26,3 +26,25 @@ border:1px solid #476780;border-radius:9px;color:#e7edf7;padding:12px;font:inher
 resize:vertical}
 .stage-files-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .stage-files-list button{font-size:12px;padding:7px 10px;background:#233c56}
+
+
+/* Apps Hub: actionable first-screen experience without touching production. */
+.apps-hub{margin-bottom:24px;border-color:#356080}
+.hub-toolbar{display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-bottom:14px}
+.hub-tabs{display:flex;gap:7px}
+.hub-tabs button[aria-pressed="false"]{background:#253c55;color:#c5d5e7}
+.hub-search-label{display:flex;flex-direction:column;gap:6px;flex:1;min-width:210px;color:#b5c9dc;font-size:13px}
+.hub-search-label input{width:100%;padding:11px 12px;border:1px solid #47647d;border-radius:9px;background:#0e1b2c;color:#e8f0fb;font:inherit}
+.hub-metrics{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+.hub-metric{padding:9px 12px;background:#1e344b;border:1px solid #36546c;border-radius:9px;color:#c3d6e7;font-size:13px}
+.hub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:12px;margin:15px 0}
+.hub-card{border:1px solid #38536d;border-radius:12px;padding:16px;background:#182a3f;display:flex;flex-direction:column;gap:8px;min-width:0}
+.hub-card h3{font-size:16px;margin:0;word-break:break-word}
+.hub-card p{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.hub-card .hub-state{font-size:12px;font-weight:650;color:#9bc7ec}
+.hub-card .hub-state.running{color:#79dbb8}
+.hub-card .hub-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:7px}
+.hub-card button{padding:8px 12px;font-size:13px}
+.hub-boundary{font-size:12px;margin:14px 0 0}
+#hub-more[hidden]{display:none}
+@media(max-width:700px){.hub-toolbar{align-items:stretch}.hub-tabs button{flex:1}}

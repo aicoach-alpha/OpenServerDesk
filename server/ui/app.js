@@ -141,6 +141,199 @@ refreshProgress();
 
 let stageToken = "";
 let stageCanWrite = false;
+// Apps Hub: a single user-facing entrypoint, reusing existing guarded APIs.
+// The host Docker inventory is ALWAYS read-only; only owner-verified staging
+// apps expose management navigation.
+let hubDockerData=null;
+let hubStageData=null;
+let hubView="installed";
+let hubLimit=36;
+const hubDestinations={
+  docker:"stage-apps-list",
+  compose:"stage-compose-list",
+  store_pilot:"appstore-pilot-apps",
+  store_general:"store-general-list",
+  store_compiled:"compiled-list"
+};
+function hubNavigate(id) {
+  const target=$(id);
+  if (!target)return;
+  target.scrollIntoView({behavior:"smooth",block:"start"});
+  target.setAttribute("tabindex","-1");
+  target.focus({preventScroll:true});
+}
+function hubMetric(label,value){
+  const item=document.createElement("span");
+  item.className="hub-metric";
+  item.textContent=String(value)+" "+label;
+  return item;
+}
+function hubCard(item) {
+  const card=document.createElement("article");
+  card.className="hub-card";
+  const title=document.createElement("h3");
+  title.textContent=item.title;
+  const flag=document.createElement("span");
+  flag.className="hub-state"+(item.running?" running":"");
+  flag.textContent=item.scope+" · "+item.state;
+  const description=document.createElement("p");
+  description.textContent=item.description;
+  const actions=document.createElement("div");
+  actions.className="hub-actions";
+  if (item.manage) {
+    actions.appendChild(stageButton("Manage staging",false,()=>hubNavigate(item.manage)));
+  } else if (item.store_id) {
+    actions.appendChild(stageButton(stageToken?"Review / staging install":"Connect to review",
+      false,()=>{
+        if (!stageToken) {
+          hubNavigate("stage-app-management");
+          return;
+        }
+        hubNavigate("appstore-panel");
+        appstoreDetails(item.store_id);
+      }));
+  } else {
+    const note=document.createElement("span");
+    note.className="hub-state";
+    note.textContent="Read-only";
+    actions.appendChild(note);
+  }
+  card.append(title,flag,description,actions);
+  return card;
+}
+function hubRender() {
+  const rows=[];
+  const metrics=$("hub-metrics");
+  metrics.replaceChildren();
+  const needle=$("hub-search").value.trim().toLowerCase();
+  if (hubView==="installed") {
+    if (hubDockerData) {
+      const groups=new Map();
+      for (const service of hubDockerData.containers) {
+        const group=service.compose_project||service.name||"Unnamed container";
+        if (!groups.has(group))groups.set(group,[]);
+        groups.get(group).push(service);
+      }
+      for (const [name,services] of groups) {
+        const active=services.filter(x=>x.state==="running").length;
+        rows.push({
+          title:name,scope:"Docker host / read-only",
+          state:active+"/"+services.length+" running",running:active===services.length,
+          description:services.map(x=>x.name+" · "+x.state).join(" | "),
+        });
+      }
+      metrics.appendChild(hubMetric("host Docker projects/containers",groups.size));
+    }
+    if (hubStageData) {
+      for (const app of hubStageData.applications) {
+        rows.push({
+          title:app.name,scope:"Isolated staging / "+app.source,
+          state:app.lifecycle.replaceAll("_"," "),
+          running:app.lifecycle==="running",
+          description:(app.project?app.project+" · ":"")+
+            app.readiness.replaceAll("_"," ")+
+            (app.service_counts?" · "+app.service_counts.running+
+              "/"+app.service_counts.total+" services":""),
+          manage:hubDestinations[app.source]
+        });
+      }
+      for (const restricted of (hubStageData.restricted_projects||[])) {
+        rows.push({
+          title:restricted.project,scope:"Isolated staging / restricted",
+          state:"Read-only",running:false,
+          description:restricted.reason.replaceAll("_"," ")
+        });
+      }
+      metrics.appendChild(hubMetric("staging projects",
+        hubStageData.applications.length+(hubStageData.restricted_projects||[]).length));
+    }
+  } else if (casaosStoreData) {
+    for (const app of casaosStoreData.apps) {
+      rows.push({
+        title:app.title,scope:"CasaOS Store / "+app.store,
+        state:app.category,running:false,
+        description:(app.tagline||"App Store catalogue")+
+          " · "+app.service_count+" service(s)",
+        store_id:app.id
+      });
+    }
+    metrics.appendChild(hubMetric("catalogue apps",casaosStoreData.app_count));
+  }
+  const matches=rows.filter(item=>!needle ||
+    [item.title,item.scope,item.state,item.description]
+      .some(value=>String(value).toLowerCase().includes(needle)));
+  const grid=$("hub-cards");
+  grid.replaceChildren(...matches.slice(0,hubLimit).map(hubCard));
+  $("hub-more").hidden=matches.length<=hubLimit;
+  if (hubView==="store"&&!casaosStoreData) {
+    $("hub-status").textContent=stageToken?
+      "Load the App Store using Refresh apps.":"Connect as a staging operator to browse the CasaOS Store.";
+  } else if (hubView==="installed"&&!hubDockerData&&!hubStageData) {
+    $("hub-status").textContent="Docker inventory unavailable; refresh to retry.";
+  } else {
+    $("hub-status").textContent=matches.length+" matching "+
+      (hubView==="installed"?"installed/staging entries":"catalogue apps")+
+      " · showing "+Math.min(matches.length,hubLimit)+
+      (hubView==="installed"&&!stageToken?" · Connect for staging management":"")+
+      (hubStageData&&hubView==="installed"&&!hubStageData.complete?
+       " · staging inventory incomplete":"");
+  }
+}
+async function hubRefresh(){
+  $("hub-refresh").disabled=true;
+  try {
+    const response=await fetch("/api/v1/docker/containers",{cache:"no-store"});
+    if (!response.ok)throw Error("Docker inventory HTTP "+response.status);
+    const data=await response.json();
+    if (data.source!=="local_docker_engine_read_only" ||
+        !Array.isArray(data.containers) ||
+        data.container_count!==data.containers.length)
+      throw Error("Invalid host Docker inventory scope");
+    hubDockerData=data;
+  }catch(err){
+    hubDockerData=null;
+    $("hub-status").textContent="Host Docker inventory: "+err.message;
+  }
+  if (stageToken) {
+    try {
+      const response=await fetch("/api/v1/stage/unified-inventory",{
+        cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}});
+      if (!response.ok)throw Error("Staging access HTTP "+response.status);
+      const data=await response.json();
+      if (data.scope!=="stage_owned_inventory_only" ||
+          data.production_mutation_allowed!==false ||
+          !Array.isArray(data.applications))
+        throw Error("Invalid isolated staging scope");
+      hubStageData=data;
+    }catch(err){
+      hubStageData=null;
+      $("hub-status").textContent="Staging inventory: "+err.message;
+    }
+    if (hubView==="store"&&!casaosStoreData)await appstoreRefresh();
+  } else {
+    hubStageData=null;
+  }
+  $("hub-refresh").disabled=false;
+  hubRender();
+}
+$("hub-refresh").addEventListener("click",hubRefresh);
+$("hub-tab-installed").addEventListener("click",()=>{
+  hubView="installed";hubLimit=36;
+  $("hub-tab-installed").setAttribute("aria-pressed","true");
+  $("hub-tab-store").setAttribute("aria-pressed","false");
+  hubRender();
+});
+$("hub-tab-store").addEventListener("click",async()=>{
+  hubView="store";hubLimit=36;
+  $("hub-tab-store").setAttribute("aria-pressed","true");
+  $("hub-tab-installed").setAttribute("aria-pressed","false");
+  if (stageToken&&!casaosStoreData)await appstoreRefresh();
+  hubRender();
+});
+$("hub-search").addEventListener("input",()=>{hubLimit=36;hubRender();});
+$("hub-more").addEventListener("click",()=>{hubLimit+=36;hubRender();});
+hubRefresh();
+
 async function stageRequest(method, body) {
   if (!stageToken) throw Error("Enter operator token first");
   const options = {method, cache:"no-store", headers:{"Authorization":"Bearer " + stageToken}};
@@ -164,6 +357,7 @@ function stageButton(text, disabled, callback) {
 async function updateUnifiedInventoryAfterAction() {
   try { await unifiedStageInventoryRefresh(); }
   catch(err) { $("stage-unified-summary").textContent="Unified inventory: "+err.message; }
+  await hubRefresh();
 }
 // Docker healthchecks are optional and only describe the in-container probe.
 function stageHealthLabel(running, health) {
@@ -313,6 +507,7 @@ async function stageRefresh() {
     stageCanWrite=Array.isArray(identity.permissions) &&
       identity.permissions.includes("write");
     const data=await stageRequest("GET");
+    hubRefresh();
     $("stage-message").textContent="Authenticated "+identity.actor+
       " ("+identity.role+"); "+data.apps.length+
       " isolated stage apps · production CasaOS is not editable.";
@@ -889,6 +1084,7 @@ async function appstoreRefresh() {
         || result.app_install_enabled!==false)
       throw Error("Unexpected App Store scope");
     casaosStoreData=result;
+    hubRender();
     const category=$("appstore-category");
     category.replaceChildren();
     category.add(new Option("All categories",""));
