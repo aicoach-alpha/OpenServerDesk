@@ -67,6 +67,35 @@ def _host_requirements(doc):
     return sorted(needed)
 
 
+def _remediation(doc,error):
+    """Non-sensitive corrective hint; never return a host source path.
+
+    Long-form :ro target errors cannot be imported automatically because
+    the original mount source might be protected production data.
+    """
+    services=doc.get("services") if isinstance(doc,dict) else None
+    if not isinstance(services,dict):
+        return "review_original_compose_metadata"
+    targets=[]
+    for spec in services.values():
+        if not isinstance(spec,dict):
+            continue
+        for volume in spec.get("volumes",[]) or []:
+            if isinstance(volume,dict):
+                target=volume.get("target")
+                if isinstance(target,str) and target.endswith(":ro"):
+                    return "correct_long_form_readonly_target"
+                targets.append(target)
+            elif isinstance(volume,str) and ":" in volume:
+                targets.append(volume.split(":")[1])
+    if "/etc/resolv.conf" in targets:
+        return "requires_host_dns_and_network_capabilities"
+    if error.message in ("unsafe_container_volume_target",
+                         "unsupported_volume_type"):
+        return "review_original_mounts_without_host_data"
+    return "review_unsupported_compose_settings"
+
+
 def _evaluate(item, evidence):
     path,dev,ino,size,mtime,ctime=evidence
     st=path.lstat()
@@ -109,14 +138,18 @@ def _evaluate(item, evidence):
                 "digest_pinned":all("@sha256:" in image for image in images)}
     except AppError as err:
         requirements=_host_requirements(doc)
-        host_restricted=any(item not in (
+        resolution=_remediation(doc,err)
+        if resolution=="requires_host_dns_and_network_capabilities":
+            requirements=sorted(set(requirements+["host_dns_and_network"]))
+        host_restricted=any(value not in (
             "unsupported_volume_declaration","one_shot_init_service")
-            for item in requirements)
+            for value in requirements)
         mode=("special_host_integration" if host_restricted
               else "unsupported_compose_metadata")
         return {"id":item["id"],"sandbox_plan_supported":False,
                 "reason":err.message,"install_mode":mode,
                 "requirements":requirements,
+                "remediation_code":resolution,
                 "feature_gaps":[],"digest_pinned":False}
     except (ValueError,TypeError,UnicodeError,yaml.YAMLError):
         return {"id":item["id"],"sandbox_plan_supported":False,

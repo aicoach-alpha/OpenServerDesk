@@ -1,0 +1,38 @@
+"""Focused classification of the last three blocked CasaOS definitions."""
+import sys
+import unittest
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"server"))
+from appstore_compatibility_matrix import listing
+
+
+class RemediationTests(unittest.TestCase):
+    def test_every_catalog_entry_has_precise_safe_status(self):
+        data=listing()
+        self.assertEqual(data["app_count"],726)
+        self.assertEqual(data["sandbox_plan_supported"],670)
+        self.assertEqual(data["install_mode_counts"],{
+            "isolated_stage_sandbox":670,
+            "special_host_integration":54,
+            "unsupported_compose_metadata":2,
+        })
+        self.assertFalse(data["production_mutation_allowed"])
+        self.assertFalse(data["nextcloud_user_data_inspected"])
+        items={row["id"]:row for row in data["apps"]}
+        for name in ("github.com:com.bigbeartechworld.fail2ban",
+                     "github.com:com.bigbeartechworld.mame"):
+            item=items[name]
+            self.assertEqual(item["remediation_code"],
+                             "correct_long_form_readonly_target")
+            self.assertEqual(item["install_mode"],
+                             "unsupported_compose_metadata")
+            self.assertFalse(item["sandbox_plan_supported"])
+        vpn=items["casaos.app:org.icewhale.v2raya"]
+        self.assertEqual(vpn["remediation_code"],
+                         "requires_host_dns_and_network_capabilities")
+        self.assertEqual(vpn["install_mode"],"special_host_integration")
+        self.assertFalse(vpn["sandbox_plan_supported"])
+
+
+if __name__=="__main__":
+    unittest.main()

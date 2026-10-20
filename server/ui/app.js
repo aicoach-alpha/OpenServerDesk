@@ -1266,13 +1266,25 @@ function appstoreSelectionSync() {
   $("store-selection-prepare").textContent=stageCanWrite?"Prepare image":"Prepare (login required)";
   $("store-selection-install").textContent=stageCanWrite?"Install in staging":"Install (login required)";
   $("store-selection-manage").textContent=stageToken?"Manage installed apps":"Connect staging";
+  const remediationTexts={
+    correct_long_form_readonly_target:
+      "The source Compose incorrectly puts :ro inside a long-form target. Correct its catalog metadata; original host logs and media are not imported.",
+    requires_host_dns_and_network_capabilities:
+      "This app needs host DNS and network capabilities that isolated staging does not grant.",
+    review_original_mounts_without_host_data:
+      "Provide isolated staging data instead of reusing the original production host mount.",
+    review_unsupported_compose_settings:
+      "Original Compose settings need an isolated-stage adaptation."
+  };
   $("store-selection-status").textContent=!supported
     ? "Installation requires "+(compat?.install_mode==="special_host_integration"
       ? "host integration not enabled for isolated staging"
       : "additional Compose support")+": "+
       ((compat?.requirements||[]).length?
         compat.requirements.join(", ").replaceAll("_"," "):
-        (compat?.reason||"unverified"))
+        (compat?.reason||"unverified"))+
+      (remediationTexts[compat?.remediation_code]?
+        ". "+remediationTexts[compat.remediation_code]:"")
     : !stageToken
       ? "Sandbox plan available. Connect a staging operator to prepare images and install."
       : !stageCanWrite
@@ -1895,7 +1907,24 @@ async function compiledSwitchVersion(project,tag){
     $("compiled-status").textContent="Version switch: "+result.operation+
       " · "+tag+". Rollback is available where its checkpoint is verified.";
   }catch(err){
-    $("compiled-status").textContent="Version switch failed: "+err.message;
+    const restored=err.message==="stage_version_change_failed_original_and_data_restored";
+    const needsRecovery=err.message==="stage_version_change_requires_recovery";
+    $("compiled-status").textContent=restored
+      ? "The selected image failed to start. Previous version and staging data were automatically restored. No production apps were changed."
+      : needsRecovery
+        ? "Manual recovery required. Do not retry; use the project's Recover control."
+        : "Version switch failed: "+err.message;
+    if(restored){
+      try{
+        await compiledRefresh();
+        await updateUnifiedInventoryAfterAction();
+        $("compiled-status").textContent=
+          "Upgrade rejected: selected image did not become ready. Previous image and staging data restored; project listing refreshed.";
+      }catch(refreshError){
+        $("compiled-status").textContent+=
+          " Refresh could not complete: "+refreshError.message;
+      }
+    }
   }
 }
 async function compiledAct(action,project,checkpoint){
