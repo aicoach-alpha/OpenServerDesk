@@ -112,6 +112,9 @@ def inventory():
                 "stage_checkpoint_count": (
                     len(entry.get("data_checkpoints", []))
                     if name == "store_compiled" else 0),
+                "stage_web_available": (
+                    entry.get("stage_browser_app") is True
+                    if name == "store_compiled" else False),
             })
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,

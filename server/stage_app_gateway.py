@@ -1,7 +1,9 @@
-"""Authenticated, tightly scoped MySpeed staging web gateway.
+"""Authenticated web gateway for provenance-verified isolated stage apps.
 
-No arbitrary URL input: only the registered, provenance-verified MySpeed
-staging project, and its published server-local loopback web port.
+No arbitrary URL input: approved, stage-owned projects can proxy ONLY their
+compiled single web TCP target on a verified internal Docker stage network.
+MySpeed retains its separate exact allowlisted outbound pilot.
+No CasaOS production container can be used as a web gateway target.
 Stage session cookies do not grant access to the operator API.
 """
 from __future__ import annotations
@@ -65,15 +67,28 @@ def _matching(project):
             raise AppError("stage_web_qui_project_invalid",403)
         manifest,services=_current(project,entry)
         return _stage_private_endpoint(project,manifest,entry["owner"],services)
-    if app["app_id"]!="default:MySpeed" or app.get("outbound_network_pilot") is not True:
+    if not app.get("stage_browser_app"):
         raise AppError("stage_web_app_unavailable",404)
-    url=app.get("web_url")
-    if not isinstance(url,str):
-        raise AppError("stage_web_port_missing",503)
-    m=re.fullmatch(r"http://127\.0\.0\.1:(18[7-9][0-9]{2}|19[0-9]{3})",url)
-    if not m:
-        raise AppError("stage_web_loopback_invalid",403)
-    return int(m.group(1))
+    if app["app_id"]=="default:MySpeed" and app.get("outbound_network_pilot") is True:
+        url=app.get("web_url")
+        if not isinstance(url,str):
+            raise AppError("stage_web_port_missing",503)
+        m=re.fullmatch(r"http://127\.0\.0\.1:(18[7-9][0-9]{2}|19[0-9]{3})",url)
+        if not m:
+            raise AppError("stage_web_loopback_invalid",403)
+        return int(m.group(1))
+    # Only a provenance-verified internal staging network and its single
+    # explicitly compiled service TCP target may be proxied. The client
+    # supplies only project identity, NEVER an address, port or URL.
+    if app.get("outbound_network_pilot") is not False:
+        raise AppError("stage_web_network_not_isolated",403)
+    entry=_projects().get(project)
+    if entry is None or entry["app_id"]!=app["app_id"]:
+        raise AppError("stage_web_project_identity_changed",403)
+    manifest,services=_current(project,entry)
+    if manifest.get("networks")!={"isolated":{"internal":True}}:
+        raise AppError("stage_web_network_not_isolated",403)
+    return _stage_private_endpoint(project,manifest,entry["owner"],services)
 
 
 def _session_cleanup(now):
@@ -97,9 +112,12 @@ def issue(project):
     cookie=(COOKIE+"="+key+"; Path="+path+
             "; Max-Age="+str(TTL)+"; HttpOnly; SameSite=Strict"+
             ("; Secure" if alpha else ""))
+    scope=("authenticated_myspeed_stage_only" if isinstance(target,int)
+           else "authenticated_qui_stage_only" if
+             _projects().get(project,{}).get("app_id")==QUI_APP
+           else "authenticated_isolated_stage_web")
     return {"entry":path,"expires_in_seconds":TTL,
-            "scope":("authenticated_qui_stage_only" if isinstance(target,tuple)
-                     else "authenticated_myspeed_stage_only"),
+            "scope":scope,
             "production_mutation_allowed":False},cookie
 
 

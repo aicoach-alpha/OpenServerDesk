@@ -12,7 +12,7 @@ from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environm
 
 MAX_SERVICES=12
 MAX_TOTAL_MOUNTS=64
-NAME=re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,35}\Z")
+NAME=re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,35}\Z")
 IMAGE=re.compile(r"[A-Za-z0-9][A-Za-z0-9./_:-]{1,240}(?:@sha256:[0-9a-f]{64})?\Z")
 DIGEST=re.compile(r"sha256:[0-9a-f]{64}\Z")
 STAGE="/opt/openserverdesk-dev/runtime-stage/stage-app-manager/store-compiled"

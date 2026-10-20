@@ -292,6 +292,9 @@ function hubCard(item) {
         controls.appendChild(stageButton("Restart",false,
           ()=>hubStageAction(app,"restart")));
       if(app.source==="store_compiled"){
+        if(app.stage_web_available && app.lifecycle==="running")
+          controls.appendChild(stageButton("Open web app",false,
+            ()=>compiledOpenWeb(app.project)));
         controls.appendChild(stageButton("Update",false,
           ()=>hubStageAction(app,"update")));
         if(app.stage_rollback_available)
@@ -375,7 +378,9 @@ function hubRender() {
         title:app.title,scope:"CasaOS Store / "+app.store,
         state:app.category,running:false,
         description:(app.tagline||"App Store catalogue")+
-          " · "+app.service_count+" service(s)",
+          " · "+app.service_count+" service(s) · "+
+          (appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
+             ? "stage sandbox plan":"host integration or metadata required"),
         store_id:app.id
       });
     }
@@ -578,6 +583,7 @@ async function unifiedStageInventoryRefresh() {
         typeof app.stage_rollback_available!=="boolean" ||
         !Number.isInteger(app.stage_checkpoint_count) ||
         app.stage_checkpoint_count<0 ||
+        typeof app.stage_web_available!=="boolean" ||
         typeof app.running!=="boolean" ||
         !validHealth.includes(app.health_status) ||
         !validReadiness.includes(app.readiness) ||
@@ -1259,7 +1265,12 @@ function appstoreSelectionSync() {
   $("store-selection-install").textContent=stageCanWrite?"Install in staging":"Install (login required)";
   $("store-selection-manage").textContent=stageToken?"Manage installed apps":"Connect staging";
   $("store-selection-status").textContent=!supported
-    ? "Additional compatibility work required: "+(compat?.reason||"unverified")
+    ? "Installation requires "+(compat?.install_mode==="special_host_integration"
+      ? "host integration not enabled for isolated staging"
+      : "additional Compose support")+": "+
+      ((compat?.requirements||[]).length?
+        compat.requirements.join(", ").replaceAll("_"," "):
+        (compat?.reason||"unverified"))
     : !stageToken
       ? "Sandbox plan available. Connect a staging operator to prepare images and install."
       : !stageCanWrite
@@ -1295,9 +1306,16 @@ async function appstoreRefresh() {
         || matrix.app_count!==result.app_count || !Array.isArray(matrix.apps))
       throw Error("Unexpected App Store compatibility boundary");
     const byId=new Map(matrix.apps.map(entry=>[entry.id,entry]));
+    const modes=matrix.install_mode_counts;
     if(byId.size!==result.app_count ||
        !result.apps.every(item=>byId.has(item.id)) ||
-       matrix.sandbox_plan_supported+matrix.sandbox_plan_blocked!==result.app_count)
+       matrix.sandbox_plan_supported+matrix.sandbox_plan_blocked!==result.app_count ||
+       !modes ||
+       !["isolated_stage_sandbox","special_host_integration",
+         "unsupported_compose_metadata"].every(key=>
+           Number.isInteger(modes[key]) && modes[key]>=0) ||
+       modes.isolated_stage_sandbox!==matrix.sandbox_plan_supported ||
+       Object.values(modes).reduce((a,b)=>a+b,0)!==matrix.app_count)
       throw Error("Inconsistent App Store compatibility matrix");
     casaosStoreData=result;
     casaosStoreMatrix={...matrix,byId};
@@ -1317,8 +1335,8 @@ async function appstoreRefresh() {
     metrics.replaceChildren(
       hubMetric("catalogue apps",result.app_count),
       hubMetric("sandbox plans supported",matrix.sandbox_plan_supported),
-      hubMetric("needing additional support",matrix.sandbox_plan_blocked),
-      hubMetric("fully digest-pinned plans",matrix.supported_with_all_images_digest_pinned)
+      hubMetric("privileged host integrations",modes.special_host_integration),
+      hubMetric("metadata/runtime work",modes.unsupported_compose_metadata)
     );
     appstoreVisibleCount=30;
     appstoreRender();
@@ -1342,8 +1360,13 @@ function appstoreRender() {
   const matches=casaosStoreData.apps.filter(app=>{
     return (!source||app.store===source)&&(!category||app.category===category)
       && (!$("appstore-compat-filter").value ||
-          (appstoreCompatibilityItem(app.id)?.sandbox_plan_supported===
-           ($("appstore-compat-filter").value==="supported")))
+          ({supported:"isolated_stage_sandbox",
+            host:"special_host_integration",
+            metadata:"unsupported_compose_metadata"}[
+             $("appstore-compat-filter").value]||"")===
+            (appstoreCompatibilityItem(app.id)?.install_mode||"") ||
+          ($("appstore-compat-filter").value==="blocked" &&
+           appstoreCompatibilityItem(app.id)?.sandbox_plan_supported===false))
       && (!search||[app.title,app.tagline,app.category,app.store]
                          .some(v=>String(v).toLowerCase().includes(search)));
   });
@@ -1356,7 +1379,9 @@ function appstoreRender() {
     cell(tr,app.store);
     cell(tr,app.service_count);
     const status=cell(tr,appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
-      ? "Sandbox plan available":"Additional support needed");
+      ? "Sandbox plan available":
+      appstoreCompatibilityItem(app.id)?.install_mode==="special_host_integration"
+        ? "Requires host integration":"Metadata unsupported");
     status.className=appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
       ? "running":"inactive";
     const actions=document.createElement("td");
@@ -1747,9 +1772,9 @@ async function compiledRefresh(){
         controls.appendChild(stageButton(action,!stageCanWrite || app.health_inspection_only===true,
           ()=>compiledAct(action==="Backup + restart"?"backup-online":action,app.project)));
       }
-      if((app.app_id==="default:MySpeed" || app.app_id==="casaos.app:org.icewhale.qui")
-         && app.stage_browser_app===true
+      if(app.stage_browser_app===true
          && app.all_running && !app.data_recovery_pending
+         && !app.online_data_recovery_pending
          && !app.health_inspection_only){
         controls.appendChild(stageButton("Open app",!stageCanWrite,
           ()=>compiledOpenWeb(app.project)));
@@ -1818,7 +1843,8 @@ async function compiledOpenWeb(project){
     const result=await response.json();
     if(!response.ok)throw Error(result.error||"Staging app access failed");
     if(result.production_mutation_allowed!==false ||
-       !["authenticated_myspeed_stage_only","authenticated_qui_stage_only"].includes(result.scope) ||
+       !["authenticated_myspeed_stage_only","authenticated_qui_stage_only",
+         "authenticated_isolated_stage_web"].includes(result.scope) ||
        typeof result.entry!=="string" || !result.entry.startsWith("/stage-app/"+project+"/"))
        throw Error("Unexpected staging app gateway scope");
     window.location.assign(result.entry);

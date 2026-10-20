@@ -38,7 +38,7 @@ SAFE_TARGET=re.compile(r"/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\Z")
 # host bind sources are never copied; all writable mounts are stage-owned.
 # Permit ordinary application state under /var/lib, /etc, /home and /root,
 # but refuse Docker daemon sockets, kernel trees and system identity paths.
-BANNED_TARGETS=("/proc","/sys","/dev","/run","/var/run","/mnt","/media",
+BANNED_TARGETS=("/proc","/sys","/dev","/run","/var/run",
                 "/var/lib/docker","/var/lib/containerd","/var/lib/casaos",
                 "/var/lib/kubelet","/etc/docker","/etc/ssh","/etc/ssl",
                 "/etc/pki","/root/.ssh","/root/.docker")
@@ -142,16 +142,19 @@ def _mount_targets(service):
     if not isinstance(volumes,list) or len(volumes)>MAX_MOUNTS:
         raise AppError("unsafe_volume_count",409)
     output=[]
+    declared={}
     for item in volumes:
         if isinstance(item,str):
             fragments=item.split(":")
             if len(fragments)<2 or len(fragments)>3:
                 raise AppError("unsupported_volume_mapping",409)
             target=fragments[1]
+            signature=("short",fragments[0],fragments[2] if len(fragments)==3 else "")
         elif isinstance(item,dict):
             target=item.get("target")
             if item.get("type") not in ("bind","volume"):
                 raise AppError("unsupported_volume_type",409)
+            signature=("long",item.get("type"),item.get("source"),item.get("read_only",False))
         else:raise AppError("invalid_compose_volume",409)
         if not isinstance(target,str) or not target.startswith("/"):
             raise AppError("unsafe_container_volume_target",409)
@@ -165,9 +168,13 @@ def _mount_targets(service):
             continue
         if (target in BANNED_SYSTEM_FILE_TARGETS or
             any(target==x or target.startswith(x+"/") for x in BANNED_TARGETS) or
-            any(part in (".ssh",".docker") for part in target.split("/")) or
-            target in output):
+            any(part in (".ssh",".docker") for part in target.split("/"))):
             raise AppError("unsafe_container_volume_target",409)
+        if target in declared:
+            if declared[target] != signature:
+                raise AppError("conflicting_container_volume_target",409)
+            continue
+        declared[target]=signature
         output.append(target)
     return output
 

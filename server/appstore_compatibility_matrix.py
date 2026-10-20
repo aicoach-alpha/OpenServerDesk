@@ -21,6 +21,52 @@ SOURCE_OPTIONS=(
     "security_opt")
 
 
+def _host_requirements(doc):
+    """Classify unavailable host integrations, never reveal bind SOURCE paths.
+
+    These are informational labels, not permission grants or install flags.
+    An absent integration cannot be silently emulated by an empty volume.
+    """
+    needed=set()
+    services=doc.get("services") if isinstance(doc,dict) else None
+    if not isinstance(services,dict):
+        return []
+    for spec in services.values():
+        if not isinstance(spec,dict):
+            continue
+        for volume in spec.get("volumes",[]) or []:
+            target=None
+            if isinstance(volume,str):
+                parts=volume.split(":")
+                if len(parts)>=2:target=parts[1]
+            elif isinstance(volume,dict):
+                target=volume.get("target")
+            if not isinstance(target,str):
+                continue
+            target=target.rstrip("/")
+            if ("docker.sock" in target or target.startswith(
+                  ("/var/lib/docker","/var/lib/containerd","/var/lib/casaos"))):
+                needed.add("host_docker_or_casaos_api")
+            elif target.startswith(("/dev","/run/udev","/sys")):
+                needed.add("host_devices_or_kernel")
+            elif target.startswith(("/run","/var/run")):
+                needed.add("host_system_services")
+            elif target.startswith(("/proc","/etc/ssh","/etc/ssl",
+                                    "/etc/pki","/root/.ssh","/root/.docker")):
+                needed.add("host_security_or_system_files")
+            else:
+                needed.add("unsupported_volume_declaration")
+        if spec.get("depends_on"):
+            deps=spec["depends_on"]
+            if isinstance(deps,dict) and any(
+                isinstance(cond,dict) and
+                cond.get("condition")=="service_completed_successfully"
+                for cond in deps.values()
+            ):
+                needed.add("one_shot_init_service")
+    return sorted(needed)
+
+
 def _evaluate(item, evidence):
     path,dev,ino,size,mtime,ctime=evidence
     st=path.lstat()
@@ -31,6 +77,8 @@ def _evaluate(item, evidence):
     if st.st_size>MAX_COMPOSE_BYTES:
         return {"id":item["id"],"sandbox_plan_supported":False,
                 "reason":"catalog_metadata_exceeds_limits",
+                "install_mode":"unsupported_compose_metadata",
+                "requirements":[],
                 "feature_gaps":[],"digest_pinned":False}
     try:
         with path.open("r",encoding="utf-8") as handle:
@@ -55,15 +103,27 @@ def _evaluate(item, evidence):
         images=[part["image"] for part in plan["services"]]
         return {"id":item["id"],"sandbox_plan_supported":True,
                 "reason":"isolated_staging_plan_available",
+                "install_mode":"isolated_stage_sandbox",
+                "requirements":[],
                 "feature_gaps":sorted(set(gaps)),
                 "digest_pinned":all("@sha256:" in image for image in images)}
     except AppError as err:
+        requirements=_host_requirements(doc)
+        host_restricted=any(item not in (
+            "unsupported_volume_declaration","one_shot_init_service")
+            for item in requirements)
+        mode=("special_host_integration" if host_restricted
+              else "unsupported_compose_metadata")
         return {"id":item["id"],"sandbox_plan_supported":False,
-                "reason":err.message,"feature_gaps":[],"digest_pinned":False}
+                "reason":err.message,"install_mode":mode,
+                "requirements":requirements,
+                "feature_gaps":[],"digest_pinned":False}
     except (ValueError,TypeError,UnicodeError,yaml.YAMLError):
         return {"id":item["id"],"sandbox_plan_supported":False,
-                "reason":"invalid_casaos_store_metadata","feature_gaps":[],
-                "digest_pinned":False}
+                "reason":"invalid_casaos_store_metadata",
+                "install_mode":"unsupported_compose_metadata",
+                "requirements":[],
+                "feature_gaps":[],"digest_pinned":False}
 
 
 def listing():
@@ -77,6 +137,11 @@ def listing():
         digest=sum(item["sandbox_plan_supported"] and item["digest_pinned"] for item in rows)
         result={
             "scope":"sanitized_local_casaos_appstore_sandbox_plans",
+            "install_mode_counts":{
+                mode:sum(row["install_mode"]==mode for row in rows)
+                for mode in ("isolated_stage_sandbox",
+                             "special_host_integration",
+                             "unsupported_compose_metadata")},
             "app_count":len(rows),"sandbox_plan_supported":supported,
             "sandbox_plan_blocked":len(rows)-supported,
             "supported_with_all_images_digest_pinned":digest,

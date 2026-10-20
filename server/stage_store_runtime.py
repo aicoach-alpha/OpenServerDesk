@@ -369,7 +369,7 @@ def _validate(project,manifest,owner,*,read_only=False):
     used=[]
     public=[]
     for name,cfg in sorted(services.items()):
-        if not isinstance(name,str) or not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_.-]{0,35}",name):
+        if not isinstance(name,str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,35}",name):
             raise AppError("invalid_compiled_service",403)
         if not isinstance(cfg,dict) or not IMMUTABLE.fullmatch(str(cfg.get("image",""))):
             raise AppError("invalid_compiled_image",403)
@@ -622,8 +622,16 @@ def _summary(project,entry,*,read_only=False):
                        if _published_port(manifest) is not None and
                           manifest.get("networks")!={"isolated":{"internal":True}}
                        else None),
-            "stage_browser_app":(entry["app_id"] in (QUI_APP,"default:MySpeed")
-                                 and _published_port(manifest) is not None),
+            "stage_browser_app":(
+                _published_port(manifest) is not None and
+                (manifest.get("networks")=={"isolated":{"internal":True}}
+                 or entry["app_id"]=="default:MySpeed") and
+                not (read_only and entry["app_id"]==QUI_APP)),
+            "stage_browser_scope":(
+                "isolated_staging_http" if
+                manifest.get("networks")=={"isolated":{"internal":True}}
+                else "explicit_myspeed_pilot" if entry["app_id"]=="default:MySpeed"
+                else None),
             "production_mutation_allowed":False}
 
 def _online_file(project):
