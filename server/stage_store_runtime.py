@@ -1259,7 +1259,7 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                 _up(project)
                 _confirm_ready(project,manifest,owner,
                                grace_seconds=(25 if app_id==QUI_APP else
-                                              35 if app_id==GLANCES_ID else 11))
+                                              30 if app_id==GLANCES_ID else 11))
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
             except Exception as install_error:
