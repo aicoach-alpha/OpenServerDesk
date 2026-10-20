@@ -99,7 +99,8 @@ class Handler(BaseHTTPRequestHandler):
         port=str(self.server.server_port)
         hosts={"127.0.0.1:"+port,"localhost:"+port}
         if os.environ.get("OSD_DEPLOYMENT_TIER")=="alpha" and port=="18691":
-            hosts.add("andre-nas.tail189d24.ts.net:8445")
+            hosts.update({"andre-nas.tail189d24.ts.net:8445",
+                          "192.168.31.31:18691", "osd.vervue.my.id"})
         return hosts
 
     def _stage_origins(self):
@@ -107,7 +108,9 @@ class Handler(BaseHTTPRequestHandler):
         origins={"http://"+host for host in hosts
                  if host.startswith(("127.0.0.1:", "localhost:"))}
         if "andre-nas.tail189d24.ts.net:8445" in hosts:
-            origins.add("https://andre-nas.tail189d24.ts.net:8445")
+            origins.update({"https://andre-nas.tail189d24.ts.net:8445",
+                            "http://192.168.31.31:18691",
+                            "https://osd.vervue.my.id"})
         return origins
 
     def _stage_web(self):
@@ -662,8 +665,11 @@ class Handler(BaseHTTPRequestHandler):
 def run():
     host=os.environ.get("OSD_HOST","127.0.0.1")
     port=int(os.environ.get("OSD_PORT","18690"))
-    if host != "127.0.0.1":
-        raise ValueError("staging must bind only to loopback")
+    if host != "127.0.0.1" and not (
+        os.environ.get("OSD_DEPLOYMENT_TIER")=="alpha"
+        and host=="192.168.31.31" and port==18691
+    ):
+        raise ValueError("unapproved OpenServerDesk listener")
     ThreadingHTTPServer((host,port),Handler).serve_forever()
 
 if __name__ == "__main__":
