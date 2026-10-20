@@ -8,6 +8,10 @@ all Docker-like endpoints except the few safe GET paths are denied.
 from __future__ import annotations
 
 import json
+import selectors
+import struct
+import subprocess
+import time
 import os
 import re
 import socket
@@ -16,7 +20,7 @@ import stat
 import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,parse_qsl
 
 from stage_apps import AppError
 from stage_host_socket import SOCKET_ROOT, SOCKET_PATH
@@ -24,6 +28,10 @@ CID=re.compile(r"[a-f0-9]{64}\Z")
 PROJECT=re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
 PREFIX=re.compile(r"/v[0-9]{1,2}\.[0-9]{1,2}(?=/|$)")
 MAX_CONTAINERS=16
+MAX_LOG_BYTES=64*1024
+MAX_LOG_TAIL=160
+MAX_LOG_SECONDS=5.5
+_LOG_SLOTS=threading.BoundedSemaphore(2)
 
 
 def stage_containers():
@@ -65,14 +73,137 @@ def stage_containers():
     return result
 
 
+def _log_request(query):
+    """Parse only Docker log options that cannot influence host resources."""
+    if not isinstance(query,str) or len(query)>250:
+        raise AppError("invalid_stage_log_query",400)
+    try:
+        items=parse_qsl(query,keep_blank_values=True,strict_parsing=True,
+                        max_num_fields=9)
+    except ValueError:
+        raise AppError("invalid_stage_log_query",400)
+    opts={}
+    for key,value in items:
+        if key in opts or key not in (
+            "tail","stdout","stderr","timestamps","follow","since",
+            "until","details"):
+            raise AppError("unsupported_stage_log_query",400)
+        opts[key]=value
+    for key in ("stdout","stderr","timestamps","follow","details"):
+        if key in opts and opts[key] not in ("true","false","1","0"):
+            raise AppError("invalid_stage_log_boolean",400)
+    if opts.get("details") in ("true","1"):
+        raise AppError("stage_log_details_denied",403)
+    if opts.get("stdout") in ("false","0") and opts.get("stderr") in ("false","0"):
+        raise AppError("stage_log_streams_disabled",400)
+    tail=opts.get("tail","80")
+    if tail=="all":
+        tail=str(MAX_LOG_TAIL)  # clamp common Docker API shorthand
+    if not tail.isascii() or not tail.isdecimal() or len(tail)>3:
+        raise AppError("invalid_stage_log_tail",400)
+    n=int(tail)
+    if not 0<=n<=MAX_LOG_TAIL:
+        raise AppError("stage_log_tail_limit",400)
+    for key in ("since","until"):
+        if key in opts and (not opts[key].isascii() or
+            not opts[key].isdecimal() or len(opts[key])>11):
+            raise AppError("invalid_stage_log_timestamp",400)
+    return {"tail":n,
+            "follow":opts.get("follow") in ("true","1"),
+            "timestamps":opts.get("timestamps") in ("true","1"),
+            "since":opts.get("since"),"until":opts.get("until"),
+            "stdout":opts.get("stdout") not in ("false","0"),
+            "stderr":opts.get("stderr") not in ("false","0")}
+
+
+def _log_frames(ident,options):
+    """Bounded read of a verified staging ID; no host paths or Docker writes.
+
+    Docker CLI reads only the immutable container ID obtained from the
+    provenance-checked registry. It does not expose the daemon socket.
+    We encode the Docker stdout/stderr mux header expected by API clients.
+    """
+    if not CID.fullmatch(ident):
+        raise AppError("invalid_stage_log_container",400)
+    args=["docker","logs","--tail",str(options["tail"])]
+    if options["timestamps"]:
+        args.append("--timestamps")
+    if options["follow"]:
+        args.append("--follow")
+    if options["since"] is not None:
+        args+=["--since",options["since"]]
+    if options["until"] is not None:
+        args+=["--until",options["until"]]
+    args.append(ident)
+    result=[]
+    used=0
+    deadline=time.monotonic()+MAX_LOG_SECONDS
+    try:
+        proc=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                              stdin=subprocess.DEVNULL,bufsize=0)
+    except OSError:
+        raise AppError("stage_log_reader_unavailable",503)
+    try:
+        with selectors.DefaultSelector() as sel:
+            sel.register(proc.stdout,selectors.EVENT_READ,1)
+            sel.register(proc.stderr,selectors.EVENT_READ,2)
+            while sel.get_map() and time.monotonic()<deadline and used<MAX_LOG_BYTES:
+                ready=sel.select(timeout=min(.3,max(0,deadline-time.monotonic())))
+                for key,_ in ready:
+                    chunk=os.read(key.fd,min(4096,MAX_LOG_BYTES-used))
+                    if not chunk:
+                        sel.unregister(key.fileobj)
+                        continue
+                    if ((key.data==1 and options["stdout"]) or
+                        (key.data==2 and options["stderr"])):
+                        result.append(bytes([key.data,0,0,0])+
+                                      struct.pack(">I",len(chunk))+chunk)
+                        used+=len(chunk)
+            if not options["follow"]:
+                try:
+                    proc.wait(timeout=.3)
+                except subprocess.TimeoutExpired:
+                    pass
+                if proc.poll() not in (None,0):
+                    raise AppError("stage_log_reader_failed",503)
+            elif proc.poll() not in (None,0):
+                raise AppError("stage_log_reader_failed",503)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=.8)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=.8)
+        proc.stdout.close()
+        proc.stderr.close()
+    return b"".join(result)
+
+
+def _stage_logs_for_id(ident,query):
+    options=_log_request(query)
+    if not CID.fullmatch(ident):
+        raise AppError("invalid_stage_log_container",400)
+    if ident not in {x["Id"] for x in stage_containers()}:
+        raise AppError("stage_log_container_not_registered",404)
+    if not _LOG_SLOTS.acquire(blocking=False):
+        raise AppError("stage_log_read_capacity",429)
+    try:
+        return _log_frames(ident,options)
+    finally:
+        _LOG_SLOTS.release()
+
+
 def _normalized_path(path):
-    if not isinstance(path,str) or len(path)>180:
+    if not isinstance(path,str) or len(path)>450:
         return None
     parsed=urlsplit(path)
     if parsed.netloc or parsed.scheme or parsed.fragment:
         return None
     raw=PREFIX.sub("",parsed.path,count=1)
-    if parsed.query and raw!="/containers/json":
+    is_log=bool(re.fullmatch(r"/containers/[a-f0-9]{64}/logs",raw))
+    if parsed.query and raw!="/containers/json" and not is_log:
         return None
     if raw=="/containers/json" and parsed.query:
         # no hostile filters or arbitrary user-directed Docker operations
@@ -102,6 +233,18 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!="HEAD":
             self.wfile.write(raw)
 
+    def _respond_raw(self,status,raw):
+        self.send_response(status)
+        self.send_header("Content-Type","application/vnd.docker.raw-stream")
+        self.send_header("Cache-Control","no-store")
+        self.send_header("X-Content-Type-Options","nosniff")
+        self.send_header("Content-Length",str(len(raw)))
+        self.send_header("Connection","close")
+        self.end_headers()
+        self.close_connection=True
+        if self.command!="HEAD":
+            self.wfile.write(raw)
+
     def do_GET(self):
         path=_normalized_path(self.path)
         if path=="/_ping":
@@ -114,15 +257,29 @@ class Handler(BaseHTTPRequestHandler):
                 "Platform":{"Name":"OpenServerDesk isolated staging only"},
             })
         if path=="/info":
+            try:
+                rows=stage_containers()
+            except (AppError,OSError,ValueError):
+                return self._respond(503,{"message":"stage_inventory_unavailable"})
             return self._respond(200,{"Name":"osd-stage-only",
-                "Containers":0,"ContainersRunning":0,
+                "Containers":len(rows),
+                "ContainersRunning":sum(r["State"]=="running" for r in rows),
                 "Images":0,"ID":"no-host-runtime",
-                "Driver":"none","SecurityOptions":["stage-only-read-only"]})
+                "Driver":"stage-only","SecurityOptions":["stage-only-read-only"]})
         if path=="/containers/json":
             try:
                 return self._respond(200,stage_containers())
             except (AppError,OSError,ValueError):
                 return self._respond(503,{"message":"stage_inventory_unavailable"})
+        if path and re.fullmatch(r"/containers/[a-f0-9]{64}/logs",path):
+            ident=path[len("/containers/"):-len("/logs")]
+            try:
+                body=_stage_logs_for_id(ident,urlsplit(self.path).query)
+                return self._respond_raw(200,body)
+            except AppError as err:
+                return self._respond(err.status,{"message":err.message})
+            except (OSError,ValueError,subprocess.SubprocessError):
+                return self._respond(503,{"message":"stage_log_reader_unavailable"})
         if path and path.startswith("/containers/") and path.endswith("/json"):
             ident=path[len("/containers/"):-len("/json")]
             if not CID.fullmatch(ident):
