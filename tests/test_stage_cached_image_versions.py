@@ -34,6 +34,16 @@ class VersionSelectionTests(unittest.TestCase):
         with self.assertRaises(AppError):
             version.target_image("default:MySpeed","evil@sha256:abc",resolver)
 
+    def test_current_tag_resolution(self):
+        current="sha256:"+"b"*64
+        mapping={"germannewsmaker/myspeed:1.0.8":current,
+                 "germannewsmaker/myspeed:latest":"sha256:"+"c"*64}
+        matches=version.current_tags("default:MySpeed",current,
+                                     ["1.0.8","latest"],mapping.get)
+        self.assertEqual(matches,["1.0.8"])
+        self.assertEqual(version.current_tags("default:MySpeed",
+            "sha256:"+"a"*64,["1.0.8","latest"],mapping.get),[])
+
     def test_not_cached_rejected(self):
         with self.assertRaises(AppError) as ex:
             version.target_image("default:MySpeed","future123",lambda _:None)

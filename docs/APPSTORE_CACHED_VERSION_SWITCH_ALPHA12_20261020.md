@@ -27,3 +27,19 @@
 - Production cutover is NOT authorized, CasaOS remains the production panel.
 - Nextcloud user HDD data and existing production Docker workloads untouched.
 - Public Alpha: https://osd.vervue.my.id ; LAN origin 192.168.31.31:18691.
+
+
+## Alpha 0.7.0-alpha.13 — current-version visibility
+- Stage-owned single-service apps report cached version tags together with
+  tags pointing to the exact image currently running.
+- Operator selector labels the current tag and picks a DIFFERENT cached image
+  by default. Selecting an identical active tag disables Switch.
+- Five focused version selection and identity checks PASS.
+- Actual registered MySpeed read-only inventory shows active 1.0.8 and
+  alternative latest; protected Qui remains excluded.
+- No production container or data is mutated by version discovery.
+- The initial real version-switch E2E fixture chose 1.0.8 even though 1.0.8
+  was already active. It was correctly treated as no-change and uninstalled;
+  this is NOT evidence of a successful cross-image rollback.
+- A second full image-switch attempt was blocked by remote execution safety
+  checks. Cross-image E2E PASS remains outstanding, not falsely claimed.

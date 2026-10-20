@@ -58,3 +58,12 @@ def target_image(app_id,tag,resolve=resolve_image):
     if not isinstance(image,str) or not IMMUTABLE.fullmatch(image):
         raise AppError("stage_image_version_not_cached",409)
     return image
+
+
+def current_tags(app_id,immutable_image,tags,resolve=resolve_image):
+    if not IMMUTABLE.fullmatch(str(immutable_image)):
+        return []
+    repo=repository(app_id)
+    return [tag for tag in tags
+            if TAG.fullmatch(tag) and
+               resolve(repo+":"+tag)==immutable_image]

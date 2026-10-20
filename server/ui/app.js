@@ -1784,11 +1784,21 @@ async function compiledRefresh(){
         const selector=document.createElement("select");
         selector.className="stage-version-select";
         selector.setAttribute("aria-label","Cached image version for "+app.app_id);
-        for(const tag of versions)selector.add(new Option(tag,tag));
+        const activeTags=Array.isArray(app.current_image_tags)
+          ? app.current_image_tags.filter(tag=>versions.includes(tag)):[];
+        for(const tag of versions)
+          selector.add(new Option(tag+(activeTags.includes(tag)?" · current":""),tag));
+        const firstAlternative=versions.find(tag=>!activeTags.includes(tag));
+        if(firstAlternative)selector.value=firstAlternative;
+        const switchControl=stageButton("Switch cached version",!stageCanWrite ||
+          activeTags.includes(selector.value),()=>compiledSwitchVersion(
+            app.project,selector.value));
+        selector.addEventListener("change",()=>{
+          switchControl.disabled=!stageCanWrite||activeTags.includes(selector.value);
+        });
         const wrapper=document.createElement("div");
         wrapper.className="stage-version-control";
-        wrapper.append(selector,stageButton("Switch cached version",!stageCanWrite,
-          ()=>compiledSwitchVersion(app.project,selector.value)));
+        wrapper.append(selector,switchControl);
         controls.append(wrapper);
       }
       if(app.stage_browser_app===true

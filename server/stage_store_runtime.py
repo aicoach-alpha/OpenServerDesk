@@ -18,7 +18,7 @@ from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVICES
-from stage_store_versions import cached_versions, target_image
+from stage_store_versions import cached_versions, current_tags, target_image
 from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
@@ -633,13 +633,17 @@ def _summary(project,entry,*,read_only=False):
     health_by_name={s["name"]:s for s in assessment["services"]}
     for row in service_rows:
         row["readiness"]=health_by_name[row["name"]]["readiness"]
+    versions=(cached_versions(entry["app_id"],docker)
+              if len(manifest["services"])==1 and
+                 not (read_only and entry["app_id"]==QUI_APP)
+              else [])
+    active_tags=(current_tags(
+        entry["app_id"],next(iter(manifest["services"].values()))["image"],versions)
+        if versions else [])
     return {"project":project,"app_id":entry["app_id"],
             "revision":entry["revision"],
-            "cached_image_versions":(
-                cached_versions(entry["app_id"],docker)
-                if len(manifest["services"])==1 and
-                   not (read_only and entry["app_id"]==QUI_APP)
-                else []),
+            "cached_image_versions":versions,
+            "current_image_tags":active_tags,
             "health_inspection_only": bool(read_only and entry["app_id"]==QUI_APP),
             "credential_provenance": (
                 "root_protected_unverified" if read_only and entry["app_id"]==QUI_APP
