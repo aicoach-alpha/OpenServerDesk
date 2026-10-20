@@ -49,6 +49,29 @@ class FacadeContractTests(unittest.TestCase):
         with self.assertRaises(AppError):
             analyze(doc,resolver=lambda _:None)
 
+    def test_prepare_and_install_preflight_retain_pilot_identity(self):
+        from contextlib import nullcontext
+        import stage_store_compiler as compiler
+        import stage_store_runtime as runtime
+        with patch.object(compiler,"analyze",return_value={
+            "services":[{"image":PILOT_IMAGE,
+                         "immutable_image":"sha256:"+"a"*64}]
+        }) as analyze:
+            outcome=compiler.prepare_images(PILOT_ID)
+        self.assertEqual(outcome["operation"],"already_cached")
+        self.assertEqual(analyze.call_args.kwargs["app_id"],PILOT_ID)
+        with (patch.object(runtime,"guarded",return_value=nullcontext()),
+              patch.object(runtime,"_projects",return_value={}),
+              patch.object(compiler,"analyze",return_value={
+                  "services":[{"name":"app"}]}) as preflight,
+              patch.object(runtime,"_service_budget",
+                           side_effect=AppError("preflight_boundary_reached"))):
+            with self.assertRaises(AppError) as error:
+                runtime.operation("install",app_id=PILOT_ID)
+            self.assertEqual(error.exception.message,
+                             "preflight_boundary_reached")
+            self.assertEqual(preflight.call_args.kwargs["app_id"],PILOT_ID)
+
     def test_no_other_catalog_or_digest_can_use_socket(self):
         _,doc=_find_catalog_definition(PILOT_ID)
         changed=json.loads(json.dumps(doc))

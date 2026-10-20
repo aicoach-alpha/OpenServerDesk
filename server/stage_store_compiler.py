@@ -60,7 +60,7 @@ def prepare_images(app_id):
     Disk/cache mutations here never start or replace production containers.
     """
     _,doc=_find_catalog_definition(app_id)
-    plan=analyze(doc)
+    plan=analyze(doc,app_id=app_id)
     missing=sorted({part["image"] for part in plan["services"]
                     if part["immutable_image"] is None})
     if not missing:

@@ -1006,7 +1006,7 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
             from stage_store_general import _find_catalog_definition
             from stage_store_compiler import analyze
             _,source=_find_catalog_definition(app_id)
-            requested=len(analyze(source,resolver=lambda image:None)["services"])
+            requested=len(analyze(source,resolver=lambda image:None,app_id=app_id)["services"])
             _service_budget(values,requested)
             project="osd-compiled-"+secrets.token_hex(6)
             if docker("ps","--all","--quiet","--no-trunc",
