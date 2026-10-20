@@ -95,3 +95,52 @@ def allow_configuration(project,services):
     return (all(services[k].get("environment")==expected[k] for k in IMAGES)
             and services["postgres"].get("healthcheck")==HEALTH
             and not services["qui"].get("healthcheck"))
+
+
+def allow_configuration_readonly(project, services):
+    """Validate Qui's manifest for read-only status without opening root secret.
+
+    The Docker owner's immutable labels, full IDs, networks, mounts and the
+    actual container environments are separately checked by stage_store_runtime.
+    This does NOT authenticate the saved password against the root-only file.
+    """
+    path = _path(project)
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return False
+    import stat
+    if (not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0 or metadata.st_gid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or not 1 <= metadata.st_size <= 160
+            or metadata.st_dev != ROOT.stat().st_dev):
+        return False
+    if set(services) != set(IMAGES):
+        return False
+    if any((services[name].get("labels") or {}).get("osd.m1.compiled.app") != APP
+           for name in IMAGES):
+        return False
+    pg = services["postgres"]
+    qui = services["qui"]
+    pg_env = pg.get("environment")
+    qui_env = qui.get("environment")
+    if not isinstance(pg_env, dict) or not isinstance(qui_env, dict):
+        return False
+    if (set(pg_env) != {"POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"}
+            or set(qui_env) != {"QUI__DATABASE_ENGINE", "QUI__DATABASE_DSN"}):
+        return False
+    password = pg_env["POSTGRES_PASSWORD"]
+    if not isinstance(password, str) or not CREDENTIAL.fullmatch(password):
+        return False
+    return (
+        pg_env["POSTGRES_DB"] == "osdqui"
+        and pg_env["POSTGRES_USER"] == "osdqui"
+        and qui_env["QUI__DATABASE_ENGINE"] == "postgres"
+        and qui_env["QUI__DATABASE_DSN"] ==
+          "postgres://osdqui:" + password + "@postgres:5432/osdqui?sslmode=disable"
+        and pg.get("healthcheck") == HEALTH
+        and not qui.get("healthcheck")
+        and qui.get("depends_on") ==
+          {"postgres": {"condition": "service_healthy"}}
+    )

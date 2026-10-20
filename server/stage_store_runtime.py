@@ -18,7 +18,7 @@ from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE
-from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow
+from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
 from stage_store_data import (
     listing as data_listing, checkpoint as data_checkpoint,
@@ -334,7 +334,7 @@ def _projects():
             raise AppError("compiled_stage_registry_invalid",503)
     return values
 
-def _validate(project,manifest,owner):
+def _validate(project,manifest,owner,*,read_only=False):
     if not isinstance(manifest,dict) or set(manifest) not in (
         {"name","services"},{"name","services","networks"}) or manifest["name"]!=project:
         raise AppError("invalid_compiled_manifest",403)
@@ -368,7 +368,9 @@ def _validate(project,manifest,owner):
             or cfg.get("security_opt")!=["no-new-privileges:true"]
             or cfg.get("restart")!="no" or cfg.get("labels")!=expected
             or cfg.get("privileged")
-            or (pilot_env and not qui_allow(project,services))
+            or (pilot_env and not (
+                qui_readonly_allow(project,services) if read_only
+                else qui_allow(project,services)))
             or cfg.get("env_file")
             or cfg.get("devices") or cfg.get("build")):
             raise AppError("unsafe_compiled_service_settings",403)
@@ -402,8 +404,8 @@ def _validate(project,manifest,owner):
 def _compose_path(project):
     return _file(_folder(project)/"compose.json")
 
-def _owned(project,manifest,owner):
-    _validate(project,manifest,owner)
+def _owned(project,manifest,owner,*,read_only=False):
+    _validate(project,manifest,owner,read_only=read_only)
     raw=docker("ps","--all","--quiet","--no-trunc",
                "--filter","label=com.docker.compose.project="+project)
     ids=[x for x in raw.splitlines() if x]
@@ -490,14 +492,14 @@ def _prepare_volumes(project,raw):
             service_dir.stat().st_dev!=ROOT.stat().st_dev):
             raise AppError("unsafe_stage_service_directory",403)
 
-def _current(project,entry):
+def _current(project,entry,*,read_only=False):
     folder=_folder(project)
     if folder.is_symlink() or not folder.is_dir():
         raise AppError("compiled_stage_project_dir_invalid",403)
     manifest=_read(_compose_path(project),None)
     if not isinstance(manifest,dict):
         raise AppError("compiled_stage_manifest_missing",503)
-    services=_owned(project,manifest,entry["owner"])
+    services=_owned(project,manifest,entry["owner"],read_only=read_only)
     return manifest,services
 
 def _up(project):
@@ -562,8 +564,8 @@ def _down_owned(project,manifest,owner):
             raise AppError("compiled_stage_network_cleanup_unverified",403)
         docker("network","rm",network,timeout=30)
 
-def _summary(project,entry):
-    manifest,services=_current(project,entry)
+def _summary(project,entry,*,read_only=False):
+    manifest,services=_current(project,entry,read_only=read_only)
     service_rows=[
         {"name":s["name"],"running":s["running"],
          "status":s["status"],"exit_code":s["exit_code"],
@@ -577,6 +579,11 @@ def _summary(project,entry):
         row["readiness"]=health_by_name[row["name"]]["readiness"]
     return {"project":project,"app_id":entry["app_id"],
             "revision":entry["revision"],
+            "health_inspection_only": bool(read_only and entry["app_id"]==QUI_APP),
+            "credential_provenance": (
+                "root_protected_unverified" if read_only and entry["app_id"]==QUI_APP
+                else "not_applicable"),
+
             "services":service_rows,
             "health_summary":{key:value for key,value in assessment.items()
                               if key!="services"},
@@ -833,7 +840,8 @@ def listing():
                 if project in pending:
                     continue
                 try:
-                    apps.append(_summary(project,entry))
+                    apps.append(_summary(project,entry,
+                                         read_only=(entry["app_id"]==QUI_APP)))
                 except AppError as err:
                     if (entry["app_id"]==QUI_APP and
                             err.message=="qui_stage_secret_access_denied"):

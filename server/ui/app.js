@@ -1267,7 +1267,8 @@ async function compiledRefresh(){
       cell(row,health.lifecycle.replaceAll("_"," ")+" · "+
         health.counts.running+"/"+health.counts.total+" running · "+
         health.readiness.replaceAll("_"," ")+
-        (health.partial_failure?" · partial failure":""));
+        (health.partial_failure?" · partial failure":"")+
+        (app.health_inspection_only?" · credential provenance unverified; read-only":""));
       cell(row,String(app.revision)+(app.application_data_rollback?
         " · configuration + data rollback ready":" · no linked data rollback")+
         (app.outbound_network_pilot?
@@ -1280,26 +1281,30 @@ async function compiledRefresh(){
          running?["Backup + restart","stop","restart","update","rollback","uninstall"]:
                  ["start","update","rollback","checkpoint","uninstall"];
       for(const action of actions){
-        controls.appendChild(stageButton(action,!stageCanWrite,
+        controls.appendChild(stageButton(action,!stageCanWrite || app.health_inspection_only===true,
           ()=>compiledAct(action==="Backup + restart"?"backup-online":action,app.project)));
       }
       if((app.app_id==="default:MySpeed" || app.app_id==="casaos.app:org.icewhale.qui")
          && app.stage_browser_app===true
-         && app.all_running && !app.data_recovery_pending){
+         && app.all_running && !app.data_recovery_pending
+         && !app.health_inspection_only){
         controls.appendChild(stageButton("Open app",!stageCanWrite,
           ()=>compiledOpenWeb(app.project)));
       }
       if(!app.data_recovery_pending && !app.online_data_recovery_pending){
         for(const snapshot of (app.data_checkpoints||[])){
-          controls.appendChild(stageButton("Restore + restart "+snapshot,!stageCanWrite,
+          controls.appendChild(stageButton("Restore + restart "+snapshot,
+            !stageCanWrite || app.health_inspection_only===true,
             ()=>compiledAct("restore-online",app.project,snapshot)));
-          controls.appendChild(stageButton("Delete backup "+snapshot,!stageCanWrite,
+          controls.appendChild(stageButton("Delete backup "+snapshot,
+            !stageCanWrite || app.health_inspection_only===true,
             ()=>compiledAct("delete-checkpoint",app.project,snapshot)));
         }
       }
       if(!running && !app.data_recovery_pending && !app.online_data_recovery_pending){
         for(const snapshot of (app.data_checkpoints||[])){
-          controls.appendChild(stageButton("Restore "+snapshot,!stageCanWrite,
+          controls.appendChild(stageButton("Restore "+snapshot,
+            !stageCanWrite || app.health_inspection_only===true,
             ()=>compiledAct("restore-data",app.project,snapshot)));
         }
       }
