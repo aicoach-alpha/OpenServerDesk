@@ -124,7 +124,7 @@ def _dependency_map(manifest):
             deps={}
             for dep,condition in raw.items():
                 if (not isinstance(condition,dict) or set(condition)!={"condition"}
-                        or condition["condition"] not in ("service_started","service_healthy")):
+                        or condition["condition"] not in ("service_started","service_healthy","service_completed_successfully")):
                     raise AppError("unsafe_compiled_dependency_condition",403)
                 deps[dep]=condition["condition"]
         else:
@@ -132,7 +132,27 @@ def _dependency_map(manifest):
         if any(not isinstance(dep,str) or dep not in services or dep==name for dep in deps):
             raise AppError("unsafe_compiled_dependency_reference",403)
         edges[name]=deps
+    required={}
+    for dependencies in edges.values():
+        for name,condition in dependencies.items():
+            required.setdefault(name,set()).add(condition)
+    if any("service_completed_successfully" in conditions and len(conditions)>1
+           for conditions in required.values()):
+        raise AppError("conflicting_compiled_one_shot_dependency",403)
     return edges
+
+def _completed_services(manifest):
+    return {name for deps in _dependency_map(manifest).values()
+            for name,condition in deps.items()
+            if condition=="service_completed_successfully"}
+
+def _stage_service_ready(name,item,completed):
+    if name in completed:
+        return (not item["running"] and item.get("status")=="exited"
+                and item.get("exit_code")==0)
+    # Lifecycle means process active, not healthcheck passed. The health
+    # contract separately reports starting and unhealthy services.
+    return item["running"]
 
 def _startup_order(manifest):
     edges=_dependency_map(manifest)
@@ -174,9 +194,14 @@ def _wait_for_dependency(project,manifest,owner,service,grace_seconds=22):
     deadline=time.monotonic()+grace_seconds
     while True:
         current=_owned(project,manifest,owner)
-        states={name:(current[name]["running"] and (
-            condition=="service_started" or current[name].get("health")=="healthy"))
-                for name,condition in dependencies.items()}
+        states={name:(
+            (not current[name]["running"] and
+             current[name].get("status")=="exited" and
+             current[name].get("exit_code")==0)
+            if condition=="service_completed_successfully" else
+            (current[name]["running"] and
+             (condition=="service_started" or current[name].get("health")=="healthy")))
+            for name,condition in dependencies.items()}
         if all(states.values()):return
         # A service_healthy dependency without a Docker healthcheck
         # can never be fulfilled; reject instead of starting the dependent.
@@ -184,6 +209,11 @@ def _wait_for_dependency(project,manifest,owner,service,grace_seconds=22):
                current[name].get("health") is None
                for name,condition in dependencies.items()):
             raise AppError("compiled_dependency_healthcheck_missing",503)
+        if any(condition=="service_completed_successfully" and
+               not current[name]["running"] and current[name].get("status")=="exited"
+               and current[name].get("exit_code")!=0
+               for name,condition in dependencies.items()):
+            raise AppError("compiled_one_shot_dependency_failed",503)
         if any(current[name].get("health")=="unhealthy"
                for name in dependencies):
             raise AppError("compiled_dependency_unhealthy",503)
@@ -249,7 +279,10 @@ def _confirm_ready(project,manifest,owner,grace_seconds=11):
     port=_published_port(manifest)
     while True:
         services=_owned(project,manifest,owner)
-        running=bool(services) and all(x["running"] for x in services.values())
+        completed=_completed_services(manifest)
+        running=bool(services) and all(
+            _stage_service_ready(name,item,completed)
+            for name,item in services.items())
         # Dependency-aware readiness does not treat an unhealthy database
         # as a healthy deployment just because the web TCP port opened.
         required_healthy={name for cfg in _dependency_map(manifest).values()
@@ -270,7 +303,9 @@ def _confirm_ready(project,manifest,owner,grace_seconds=11):
                 return {"running":True,"web_reachable":port is None or reachable,
                         "checked_services":len(services)}
             raise AppError("compiled_stage_application_failed_readiness",503)
-        if any(x.get("status")=="exited" for x in services.values()):
+        if any(item.get("status")=="exited" and
+               (name not in completed or item.get("exit_code")!=0)
+               for name,item in services.items()):
             raise AppError("compiled_stage_application_exited_during_start",503)
         time.sleep(min(1.5,max(0,deadline-now)))
 
@@ -592,7 +627,8 @@ def _summary(project,entry,*,read_only=False):
          "depends_on":s["depends_on"]}
         for s in sorted(services.values(),key=lambda x:x["name"])
     ]
-    assessment=assess_multiservice_health(service_rows)
+    completed=_completed_services(manifest)
+    assessment=assess_multiservice_health(service_rows,completed_names=completed)
     health_by_name={s["name"]:s for s in assessment["services"]}
     for row in service_rows:
         row["readiness"]=health_by_name[row["name"]]["readiness"]
@@ -607,7 +643,12 @@ def _summary(project,entry,*,read_only=False):
             "health_summary":{key:value for key,value in assessment.items()
                               if key!="services"},
             "startup_order":_startup_order(manifest),
-            "all_running":all(x["running"] for x in services.values()),
+            "all_running":all(
+                _stage_service_ready(name,item,completed)
+                for name,item in services.items()),
+            "completed_init_services":sorted(
+                name for name in completed if
+                _stage_service_ready(name,services[name],completed)),
             "outbound_network_pilot":_network_contract(manifest)[0]=="egress" if "networks" in manifest else False,
             "image_configuration_rollback":True,
             "application_data_rollback":(
@@ -659,7 +700,7 @@ def _resume_online(project,manifest,owner,running):
     current=_owned(project,manifest,owner)
     if any(current[name]["running"]!=(name in running) for name in current):
         raise AppError("stage_online_service_restart_mismatch",503)
-    if len(running)==len(current) and running:
+    if running and set(current)==set(running)|_completed_services(manifest):
         _confirm_ready(project,manifest,owner)
 
 def _online_recover(project,manifest,entry):
@@ -1101,11 +1142,15 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             if action in ("start","restart"):
                 current=_owned(project,manifest,entry["owner"])
                 for name in _startup_order(manifest):
-                    if action=="start" or name in original:
+                    if (action=="start" or name in original) and not (
+                        name in _completed_services(manifest) and
+                        _stage_service_ready(name,current[name],
+                                             _completed_services(manifest))):
                         if not current[name]["running"]:
                             _wait_for_dependency(project,manifest,entry["owner"],name)
                             docker("start",current[name]["id"])
-                if action=="start" or len(original)==len(services):
+                if action=="start" or (
+                    original==set(services)-_completed_services(manifest)):
                     _confirm_ready(project,manifest,entry["owner"])
             return {"operation":action,"app":_summary(project,entry)}
         # Version changes are now accompanied by cold stage-volume snapshots

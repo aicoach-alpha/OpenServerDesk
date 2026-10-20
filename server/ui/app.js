@@ -357,7 +357,9 @@ function hubRender() {
           description:(app.project?app.project+" · ":"")+
             app.readiness.replaceAll("_"," ")+
             (app.service_counts?" · "+app.service_counts.running+
-              "/"+app.service_counts.total+" services":""),
+              "/"+app.service_counts.total+" active"+
+              (app.service_counts.completed_init?
+               " · "+app.service_counts.completed_init+" init complete":""):""),
           manage:hubDestinations[app.source],
           lifecycleApp:app
         });
@@ -1700,7 +1702,7 @@ async function storeCompilerPreview(id) {
     $("appstore-compile-preview").textContent=
       "Staging service plan: "+data.service_count+
       " services; start order: "+data.startup_order.join(" → ")+
-      "; isolated volumes: "+data.stage_volume_count+
+      (data.one_shot_init_services?.length?"; init complete needed: "+data.one_shot_init_services.join(", "):"")+"; isolated volumes: "+data.stage_volume_count+
       "; immutable images cached: "+data.cached_immutable_images+
       "/"+data.service_count+
       ". Network: "+(data.outbound_network_pilot?
@@ -1753,7 +1755,9 @@ async function compiledRefresh(){
           !["not_ready","not_verified","checking","healthcheck_passed","healthcheck_failed"].includes(health.readiness))
         throw Error("Invalid compiled multi-service health summary");
       cell(row,health.lifecycle.replaceAll("_"," ")+" · "+
-        health.counts.running+"/"+health.counts.total+" running · "+
+        health.counts.running+"/"+health.counts.total+" running"+
+        (health.counts.completed_init?
+          " · "+health.counts.completed_init+" init completed":"")+" · "+
         health.readiness.replaceAll("_"," ")+
         (health.partial_failure?" · partial failure":"")+
         (app.health_inspection_only?" · credential provenance unverified; read-only":""));

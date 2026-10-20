@@ -96,11 +96,10 @@ def dependencies(service):
         deps=source
     elif isinstance(source,dict):
         deps=list(source)
-        # Jobs which legitimately exit cannot pass this runtime's
-        # all-running readiness contract. Refuse instead of silently
-        # converting service_completed_successfully to service_started.
+        # Preserve completed-successfully dependencies for one-shot init
+        # services. Runtime requires an exact successful exit status.
         if not all(isinstance(v,dict) and v.get("condition","service_started")
-                   in ("service_started","service_healthy")
+                   in ("service_started","service_healthy","service_completed_successfully")
                    for v in source.values()):
             raise AppError("invalid_catalog_dependency",409)
     else:
@@ -160,6 +159,13 @@ def analyze(doc, resolver=resolve_image):
                       "web_target":catalog_tcp_port(service)})
     if any(dep not in edges or dep==name for name,ds in edges.items() for dep in ds):
         raise AppError("missing_or_self_catalog_dependency",409)
+    required={}
+    for spec in specs:
+        for dep,condition in spec["dependency_conditions"].items():
+            required.setdefault(dep,set()).add(condition)
+    if any("service_completed_successfully" in cs and len(cs)>1
+           for cs in required.values()):
+        raise AppError("conflicting_catalog_one_shot_dependency",409)
     visiting=set()
     visited=set()
     order=[]
@@ -172,7 +178,11 @@ def analyze(doc, resolver=resolve_image):
         visited.add(name)
         order.append(name)
     for name in sorted(edges):visit(name)
+    completed_init=sorted({dep for spec in specs
+                           for dep,condition in spec["dependency_conditions"].items()
+                           if condition=="service_completed_successfully"})
     return {"services":specs,"startup_order":order,"volume_count":mounts_total,
+            "one_shot_init_services":completed_init,
             "cached_image_count":sum(s["immutable_image"] is not None for s in specs),
             "all_images_cached":all(s["immutable_image"] is not None for s in specs),
             "staging_only":True,"production_mutation_allowed":False}
@@ -184,6 +194,7 @@ def preview(app_id):
             "outbound_network_pilot":_outbound_pilot(app_id,doc,plan),
             "service_count":len(plan["services"]),
             "startup_order":plan["startup_order"],
+            "one_shot_init_services":plan["one_shot_init_services"],
             "stage_volume_count":plan["volume_count"],
             "cached_immutable_images":plan["cached_image_count"],
             "all_images_cached":plan["all_images_cached"],
@@ -235,7 +246,7 @@ def compile_stage(project, app_id, host_port=None):
                 result["healthcheck"]=QUI_HEALTH
         if spec["depends_on"]:
             conditions=spec["dependency_conditions"]
-            if any(c=="service_healthy" for c in conditions.values()):
+            if any(c in ("service_healthy","service_completed_successfully") for c in conditions.values()):
                 result["depends_on"]={name:{"condition":conditions[name]}
                                       for name in sorted(conditions)}
             else:
