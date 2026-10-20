@@ -14,7 +14,7 @@ from stage_host_socket import (
     adapted_service as host_socket_adapted,
     socket_mount as host_socket_mount,
     approved_service as host_socket_service,
-    DOCKPEEK_ID,
+    DOCKPEEK_ID, GLANCES_ID, glances_environment,
     LABEL as HOST_SOCKET_LABEL, LABEL_VALUE as HOST_SOCKET_LABEL_VALUE,
 )
 from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environments as qui_environments, HEALTH as QUI_HEALTH
@@ -264,6 +264,8 @@ def compile_stage(project, app_id, host_port=None):
             result["labels"][HOST_SOCKET_LABEL]=HOST_SOCKET_LABEL_VALUE
             if app_id==DOCKPEEK_ID:
                 result["environment"]=dockpeek_environment(project)
+            elif app_id==GLANCES_ID:
+                result["environment"]=glances_environment()
         if qui:
             result["environment"]=qui_env[name]
             if name=="postgres":

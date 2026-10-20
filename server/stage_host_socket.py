@@ -17,9 +17,15 @@ DOCKPEEK_ID="github.com:com.bigbeartechworld.dockpeek"
 DOCKPEEK_SERVICE="big-bear-dockpeek"
 DOCKPEEK_IMAGE=("ghcr.io/dockpeek/dockpeek:v1.7.2@sha256:"
     "87654d0104eacff48a70c7c1eea6126f19f5803b21bfdace842ae765351593b4")
+GLANCES_ID="github.com:com.bigbeartechworld.glances"
+GLANCES_SERVICE="big-bear-glances"
+GLANCES_IMAGE=("nicolargo/glances:4.5.3.2-full@sha256:"
+    "2d16ab0fdba4b9f61b327f78dbb8a7e7931f4967be8e1db4d37326e4680e8433")
+GLANCES_ENV={"GLANCES_OPT":"-w"}
 APPROVED_PILOTS={
     PILOT_ID:(PILOT_SERVICE,PILOT_IMAGE),
     DOCKPEEK_ID:(DOCKPEEK_SERVICE,DOCKPEEK_IMAGE),
+    GLANCES_ID:(GLANCES_SERVICE,GLANCES_IMAGE),
 }
 LABEL="osd.m1.compiled.broker"
 LABEL_VALUE="stage-docker-readonly-v1"
@@ -53,11 +59,22 @@ def eligible(app_id,doc):
     cfg=services[expected_service]
     if cfg.get("image")!=expected_image:
         return False
+    if app_id==GLANCES_ID and (
+            not isinstance(cfg.get("environment"),list)
+            or len(cfg["environment"])!=2
+            or set(cfg["environment"])!={"GLANCES_OPT=-w","TZ=UTC"}
+            or cfg.get("ports")!=["61208:61208"]
+            or cfg.get("pid")!="host"):
+        return False
     # Refuse any privilege, host namespaces, additional device mounts or
     # custom entrypoints; these pilots need just the facade read endpoint.
     if any(cfg.get(field) for field in (
-            "privileged","devices","cap_add","pid","ipc","network_mode",
+            "privileged","devices","cap_add","ipc","network_mode",
             "security_opt","entrypoint","command")):
+        return False
+    # The Glances source metadata requests host PID, but the generated stage
+    # manifest must discard it. Never allow a privileged PID namespace.
+    if cfg.get("pid") and app_id!=GLANCES_ID:
         return False
     vols=cfg.get("volumes")
     return isinstance(vols,list) and len(vols)==1 and _socket_item(vols[0])
@@ -70,6 +87,24 @@ def approved_service(app_id):
 
 def approved_app(app_id):
     return app_id in APPROVED_PILOTS
+
+
+def glances_environment():
+    # Deliberately discard all original host-specific environment options.
+    # Glances is web-enabled only and monitors its stage container, NOT the
+    # host, until a separately reviewed host metric adapter exists.
+    return dict(GLANCES_ENV)
+
+
+def allow_glances_environment(project,services):
+    if not isinstance(services,dict) or set(services)!={GLANCES_SERVICE}:
+        return False
+    cfg=services[GLANCES_SERVICE]
+    return (
+        cfg.get("labels",{}).get("osd.m1.compiled.app")==GLANCES_ID
+        and cfg.get("environment")==GLANCES_ENV
+        and cfg.get("healthcheck") is None
+    )
 
 
 def adapted_service(app_id,doc,name,service):

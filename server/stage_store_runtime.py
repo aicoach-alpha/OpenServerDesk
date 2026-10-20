@@ -22,7 +22,7 @@ from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVI
 from stage_store_versions import cached_versions, current_tags, target_image, check_runtime_contract
 from stage_host_socket import (
     approved_app as broker_app_approved,
-    DOCKPEEK_ID,
+    DOCKPEEK_ID, GLANCES_ID, allow_glances_environment,
     LABEL as BROKER_LABEL,
     LABEL_VALUE as BROKER_LABEL_VALUE,
     is_facade_mount,
@@ -437,11 +437,12 @@ def _validate(project,manifest,owner,*,read_only=False):
             or cfg.get("pull_policy")!="never" or cfg.get("cap_drop")!=["ALL"]
             or cfg.get("security_opt")!=["no-new-privileges:true"]
             or cfg.get("restart")!="no" or cfg.get("labels")!=expected
-            or cfg.get("privileged")
+            or cfg.get("privileged") or cfg.get("pid") or cfg.get("ipc")
             or (pilot_env and not (
                 (qui_readonly_allow(project,services) if read_only
                  else qui_allow(project,services))
-                or dockpeek_env_allow(project,services)))
+                or dockpeek_env_allow(project,services)
+                or allow_glances_environment(project,services)))
             or cfg.get("env_file")
             or cfg.get("devices") or cfg.get("build")):
             raise AppError("unsafe_compiled_service_settings",403)
@@ -530,6 +531,7 @@ def _owned(project,manifest,owner,*,read_only=False):
             or any(labels.get(k)!=v for k,v in expected.items())
             or labels.get("com.docker.compose.project")!=project
             or host.get("Privileged") is not False
+            or host.get("PidMode") not in (None,"","private")
             or source_pairs!=expected_pairs
             or any(x.get("Type")!="bind" for x in mounts)):
             raise AppError("compiled_container_provenance_violation",403)
@@ -1256,7 +1258,8 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
             try:
                 _up(project)
                 _confirm_ready(project,manifest,owner,
-                               grace_seconds=25 if app_id==QUI_APP else 11)
+                               grace_seconds=(25 if app_id==QUI_APP else
+                                              35 if app_id==GLANCES_ID else 11))
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
             except Exception as install_error:
