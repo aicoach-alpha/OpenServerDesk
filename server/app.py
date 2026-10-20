@@ -21,7 +21,10 @@ from stage_topology_health import inspect as stage_topology_health
 from casaos_appstore import catalog as casaos_store_catalog, compatibility as casaos_store_compatibility
 from stage_store_installer import list_installs as store_pilot_list, action as store_pilot_action
 from stage_store_general import preflight as store_general_preflight, listing as store_general_listing, action as store_general_action
-from stage_store_runtime import listing as compiled_store_listing, operation as compiled_store_operation
+from stage_store_runtime import (
+    listing as compiled_store_listing, operation as compiled_store_operation,
+    inspect_empty_preparation as stage_empty_preparation_preview,
+)
 from stage_app_gateway import issue as stage_gateway_issue, proxy as stage_gateway_proxy
 from stage_store_coverage import coverage as stage_store_coverage
 from stage_store_compiler import preview as stage_store_compile_preview
@@ -257,10 +260,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, {"error":"invalid_stage_file_query"})
             except AppError as err:
                 return self.respond(err.status, {"error":err.message})
-        if self.path == "/api/v1/stage/store-compiled":
+        if (self.path == "/api/v1/stage/store-compiled" or
+                self.path.startswith("/api/v1/stage/store-compiled?")):
             try:
                 self._stage_auth()
-                return self.respond(200,compiled_store_listing())
+                parsed=urlsplit(self.path)
+                if not parsed.query:
+                    return self.respond(200,compiled_store_listing())
+                params=parse_qs(parsed.query,strict_parsing=True,max_num_fields=1)
+                if set(params)!={"project"} or len(params["project"])!=1:
+                    raise AppError("invalid_stage_empty_cleanup_query",400)
+                return self.respond(200,stage_empty_preparation_preview(
+                    params["project"][0]))
+            except (TypeError,ValueError):
+                return self.respond(400,{"error":"invalid_stage_empty_cleanup_query"})
             except AppError as err:
                 return self.respond(err.status,{"error":err.message})
         if (self.path == "/api/v1/stage/host-broker" or

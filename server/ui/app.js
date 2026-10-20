@@ -1768,6 +1768,7 @@ let compiledPrepareId=null;
 const COMPILED_HOUSEKEEPING_PAGE_SIZE=8;
 let compiledHousekeepingDirectories=[];
 let compiledHousekeepingPage=0;
+const compiledHousekeepingInspections=new Map();
 function compiledHousekeepingPageData(directories,query,page){
   const value=String(query||"").trim().toLowerCase();
   const filtered=directories.filter(id=>id.toLowerCase().includes(value));
@@ -1787,9 +1788,16 @@ function compiledHousekeepingRender(){
   for(const project of view.entries){
     const row=document.createElement("tr");
     cell(row,project);
-    cell(row,"Unknown content is preserved. Cleanup requires an empty, idle, verified stage folder.");
+    const inspection=compiledHousekeepingInspections.get(project);
+    cell(row,inspection
+      ? (inspection.eligible?"Verified empty at last inspection; server rechecks before removal":
+         "Cleanup unavailable: "+inspection.reason.replaceAll("_"," "))
+      : "Not inspected · retained content must be preserved");
     const actions=document.createElement("td");
-    actions.appendChild(stageButton("Clean only if empty",!stageCanWrite,
+    actions.appendChild(stageButton("Inspect eligibility",!stageToken,
+      ()=>compiledInspectEmpty(project)));
+    actions.appendChild(stageButton("Clean only if empty",
+      !stageCanWrite || !inspection?.eligible,
       ()=>compiledCleanupEmpty(project)));
     row.appendChild(actions);
     holder.appendChild(row);
@@ -1955,6 +1963,7 @@ async function compiledRefresh(){
     if(new Set(orphaned).size!==orphaned.length ||
        orphaned.length>10000)throw Error("Duplicate or unbounded stage directories");
     compiledHousekeepingDirectories=orphaned.slice().sort();
+    compiledHousekeepingInspections.clear(); // never reuse a stale eligibility decision
     compiledHousekeepingRender();
     $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
       state.capacity.installed+"/"+state.capacity.limit+" staging slots; "+
@@ -2025,8 +2034,40 @@ async function compiledSwitchVersion(project,tag){
     }
   }
 }
+async function compiledInspectEmpty(project){
+  if(!stageToken)return;
+  $("compiled-housekeeping-status").textContent="Inspecting one staging folder without deletion…";
+  try{
+    const response=await fetch(
+      "/api/v1/stage/store-compiled?project="+encodeURIComponent(project),{
+        cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
+      });
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||"Staging inspection unavailable");
+    if(result.project!==project ||
+       result.scope!=="stage_unregistered_empty_scaffold_only" ||
+       result.production_mutation_allowed!==false ||
+       result.user_data_deleted!==false ||
+       typeof result.eligible!=="boolean" ||
+       typeof result.reason!=="string" || result.reason.length>128 ||
+       (result.eligible && result.reason!=="verified_empty_scaffold"))
+      throw Error("Invalid stage cleanup preview");
+    compiledHousekeepingInspections.set(project,result);
+    compiledHousekeepingRender();
+    $("compiled-housekeeping-status").textContent=result.eligible
+      ? project+": verified empty. Cleanup is available after confirmation; eligibility is rechecked."
+      : project+": cleanup unavailable ("+result.reason.replaceAll("_"," ")+
+        "). Existing files and staging data remain unchanged.";
+  }catch(err){
+    compiledHousekeepingInspections.delete(project);
+    compiledHousekeepingRender();
+    $("compiled-housekeeping-status").textContent=
+      "Inspection refused for "+project+": "+err.message;
+  }
+}
 async function compiledCleanupEmpty(project){
-  if(!stageCanWrite||!stageToken)return;
+  if(!stageCanWrite||!stageToken ||
+     compiledHousekeepingInspections.get(project)?.eligible!==true)return;
   if(!confirm("Inspect "+project+" and permanently remove ONLY verified, empty, "+
     "unregistered preparation scaffolding? Retained app data and unknown files "+
     "must be preserved. This does not change CasaOS production."))return;
@@ -2045,6 +2086,8 @@ async function compiledCleanupEmpty(project){
       "Verified empty staging scaffold removed: "+project+
       ". Existing applications and retained user data were not deleted.";
   }catch(err){
+    compiledHousekeepingInspections.delete(project);
+    compiledHousekeepingRender();
     $("compiled-status").textContent=
       "Cleanup refused for "+project+": "+err.message+
       ". Folder retained for operator review; no forced deletion.";

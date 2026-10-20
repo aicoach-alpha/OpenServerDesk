@@ -1050,8 +1050,8 @@ def _recover_failed_install(project,manifest,owner,values):
     _atomic(STATE,values)
 
 
-def _cleanup_failed_preparation(project,folder,values):
-    """Remove only freshly created, empty staging scaffolding before Docker up.
+def _inspect_empty_preparation(project,folder,values):
+    """Verify only fresh-stage scaffolding without any filesystem deletion.
 
     Nothing is recursively deleted. Reject unknown data, symlinks, mountpoints,
     partial recovery journals, registered projects and Docker resources before
@@ -1125,6 +1125,13 @@ def _cleanup_failed_preparation(project,folder,values):
             if any(volume.iterdir()):
                 raise AppError("stage_prepare_volume_contains_data",403)
             remove_volumes.append(volume)
+    return remove_files,remove_volumes,remove_services
+
+
+def _cleanup_failed_preparation(project,folder,values):
+    """Inspect every potential target BEFORE deleting any empty scaffold."""
+    remove_files,remove_volumes,remove_services=(
+        _inspect_empty_preparation(project,folder,values))
     # Preflight completes before a single unlink; no arbitrary rmtree.
     for child in remove_files:
         child.unlink()
@@ -1133,6 +1140,38 @@ def _cleanup_failed_preparation(project,folder,values):
     for service in remove_services:
         service.rmdir()
     folder.rmdir()
+
+
+def inspect_empty_preparation(project):
+    """Non-mutating, authenticated operator preview for one stage directory."""
+    if not isinstance(project,str) or not PROJECT.fullmatch(project):
+        raise AppError("invalid_stage_empty_cleanup_request",400)
+    with guarded():
+        values=_projects()
+        output={"project":project,"scope":"stage_unregistered_empty_scaffold_only",
+                "production_mutation_allowed":False,"user_data_deleted":False,
+                "eligible":False}
+        if project in values:
+            return {**output,"reason":"stage_empty_cleanup_registered_project"}
+        folder=_folder(project)
+        if folder.is_symlink() or not folder.is_dir():
+            return {**output,"reason":"stage_empty_cleanup_folder_missing"}
+        try:
+            age=time.time()-folder.stat().st_mtime
+        except OSError:
+            return {**output,"reason":"unsafe_stage_prepare_cleanup_folder"}
+        if age<600:
+            return {**output,"reason":"stage_empty_cleanup_wait_for_idle"}
+        try:
+            files,volumes,services=_inspect_empty_preparation(
+                project,folder,values)
+        except AppError as error:
+            return {**output,"reason":error.message}
+        except OSError:
+            return {**output,"reason":"stage_empty_cleanup_inspection_unavailable"}
+        return {**output,"eligible":True,"reason":"verified_empty_scaffold",
+                "generated_files":len(files),"empty_volumes":len(volumes)}
+
 
 
 def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
