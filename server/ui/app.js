@@ -1894,6 +1894,23 @@ async function compiledRefresh(){
       controls.appendChild(stageButton("Recover",!stageCanWrite,()=>compiledAct("recover",project)));
       row.appendChild(controls);body.appendChild(row);
     }
+    const orphaned=state.unregistered_stage_directories||[];
+    if(!Array.isArray(orphaned) || orphaned.some(id=>
+        typeof id!=="string" || !/^osd-compiled-[a-f0-9]{12}$/.test(id)))
+      throw Error("Invalid unregistered stage directory report");
+    // Show only a small housekeeping sample, not an exhaustive directory
+    // browser. The operator explicitly approves any candidate removal.
+    for(const project of orphaned.slice(0,6)){
+      const row=document.createElement("tr");
+      cell(row,project);
+      cell(row,"Unregistered stage folder · may contain retained data");
+      cell(row,"Not managed — no automatic deletion");
+      cell(row,"—");
+      const controls=document.createElement("td");
+      controls.appendChild(stageButton("Clean only if empty",!stageCanWrite,
+        ()=>compiledCleanupEmpty(project)));
+      row.appendChild(controls);body.appendChild(row);
+    }
     $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
       state.capacity.installed+"/"+state.capacity.limit+" staging slots; "+
       state.capacity.services_in_use+"/"+state.capacity.service_limit+
@@ -1961,6 +1978,31 @@ async function compiledSwitchVersion(project,tag){
           " Refresh could not complete: "+refreshError.message;
       }
     }
+  }
+}
+async function compiledCleanupEmpty(project){
+  if(!stageCanWrite||!stageToken)return;
+  if(!confirm("Inspect "+project+" and permanently remove ONLY verified, empty, "+
+    "unregistered preparation scaffolding? Retained app data and unknown files "+
+    "must be preserved. This does not change CasaOS production."))return;
+  $("compiled-status").textContent="Checking the abandoned staging scaffold…";
+  try{
+    const result=await compiledApi("POST",{
+      action:"clean-preparation",project
+    });
+    if(result.operation!=="cleaned_empty_scaffold" ||
+       result.production_mutation_allowed!==false ||
+       result.user_data_deleted!==false)
+      throw Error("Unexpected cleanup result");
+    await compiledRefresh();
+    await updateUnifiedInventoryAfterAction();
+    $("compiled-status").textContent=
+      "Verified empty staging scaffold removed: "+project+
+      ". Existing applications and retained user data were not deleted.";
+  }catch(err){
+    $("compiled-status").textContent=
+      "Cleanup refused for "+project+": "+err.message+
+      ". Folder retained for operator review; no forced deletion.";
   }
 }
 async function compiledAct(action,project,checkpoint){

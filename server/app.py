@@ -618,7 +618,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(200,compiled_store_operation(op,app_id=payload["id"]))
                 if set(payload)=={"action","project"} and op in (
                     "start","stop","restart","uninstall","update","rollback","recover",
-                    "checkpoint","recover-data","backup-online","recover-online","finish-install"):
+                    "clean-preparation","checkpoint","recover-data","backup-online","recover-online","finish-install"):
                     return self.respond(200,compiled_store_operation(op,project=payload["project"]))
                 if set(payload)=={"action","project","image_tag"} and op=="switch-version":
                     return self.respond(200,compiled_store_operation(

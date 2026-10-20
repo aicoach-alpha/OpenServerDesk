@@ -1138,7 +1138,7 @@ def _cleanup_failed_preparation(project,folder,values):
 def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
     if image_tag is not None and action!="switch-version":
         raise AppError("unexpected_stage_image_version",400)
-    if action not in ("prepare","install","finish-install","start","stop","restart","uninstall","update","switch-version","rollback","recover",
+    if action not in ("prepare","install","clean-preparation","finish-install","start","stop","restart","uninstall","update","switch-version","rollback","recover",
                       "checkpoint","restore-data","recover-data",
                       "backup-online","restore-online","recover-online","delete-checkpoint"):
         raise AppError("invalid_compiled_stage_action",400)
@@ -1148,6 +1148,24 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
             if checkpoint is not None or project is not None or not isinstance(app_id,str):
                 raise AppError("invalid_compiled_image_prepare_request",400)
             return prepare_images(app_id)
+        if action=="clean-preparation":
+            # Explicit authenticated operator action for previously stranded
+            # UNREGISTERED staging scaffolds only. Do not touch retained app
+            # data or folders generated during another recent operation.
+            if (app_id is not None or checkpoint is not None or
+                not isinstance(project,str) or not PROJECT.fullmatch(project)
+                or project in values):
+                raise AppError("invalid_stage_empty_cleanup_request",400)
+            folder=_folder(project)
+            if folder.is_symlink() or not folder.is_dir():
+                raise AppError("stage_empty_cleanup_folder_missing",404)
+            if time.time()-folder.stat().st_mtime<600:
+                raise AppError("stage_empty_cleanup_wait_for_idle",409)
+            _cleanup_failed_preparation(project,folder,values)
+            return {"operation":"cleaned_empty_scaffold","project":project,
+                    "scope":"isolated_unregistered_preparation_only",
+                    "production_mutation_allowed":False,
+                    "user_data_deleted":False}
         if action=="install":
             if checkpoint is not None or project is not None or len(values)>=MAX_PROJECTS:
                 raise AppError("compiled_stage_capacity",409)
