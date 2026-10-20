@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import socket
+import stat
 import subprocess
 import time
 from pathlib import Path
@@ -19,6 +20,13 @@ from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVICES
 from stage_store_versions import cached_versions, current_tags, target_image, check_runtime_contract
+from stage_host_socket import (
+    PILOT_ID as BROKER_PILOT_ID,
+    LABEL as BROKER_LABEL,
+    LABEL_VALUE as BROKER_LABEL_VALUE,
+    is_facade_mount,
+    SOCKET_PATH as BROKER_SOCKET_PATH,
+)
 from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
@@ -414,6 +422,8 @@ def _validate(project,manifest,owner,*,read_only=False):
                   "osd.m1.compiled.service":name,
                   "osd.m1.compiled.app":cfg.get("labels",{}).get("osd.m1.compiled.app"),
                   "osd.m1.compiled.owner":owner}
+        if expected["osd.m1.compiled.app"]==BROKER_PILOT_ID:
+            expected[BROKER_LABEL]=BROKER_LABEL_VALUE
         network_ok=(cfg.get("network_mode")=="none" and "networks" not in manifest and not cfg.get("networks"))
         network_ok=network_ok or (network is not None
             and cfg.get("networks")==[network] and "network_mode" not in cfg)
@@ -447,6 +457,22 @@ def _validate(project,manifest,owner,*,read_only=False):
                 ("read_only" in mount and mount["read_only"] is not True)):
                 raise AppError("unsafe_compiled_stage_mount",403)
             src=Path(mount["source"])
+            if is_facade_mount(mount):
+                # Explicit pilot mount is a synthetic Unix socket. No real
+                # host Docker socket can match this pinned provenance.
+                if (expected["osd.m1.compiled.app"]!=BROKER_PILOT_ID or
+                    cfg["labels"].get(BROKER_LABEL)!=BROKER_LABEL_VALUE or
+                    src.is_symlink()):
+                    raise AppError("unsafe_compiled_broker_scope",403)
+                try:
+                    st=src.lstat()
+                except OSError:
+                    raise AppError("stage_docker_broker_socket_unavailable",503)
+                if (not stat.S_ISSOCK(st.st_mode) or st.st_uid!=1000 or
+                    st.st_mode & 0o077):
+                    raise AppError("unsafe_compiled_broker_socket",403)
+                used.append(str(src))
+                continue
             if (mount["type"]!="bind" or mount["bind"]!={"create_host_path":False}
                 or src not in [base/name/("volume-"+str(i)) for i in range(MAX_MOUNTS)]
                 or not src.is_dir() or src.is_symlink()
@@ -487,7 +513,12 @@ def _owned(project,manifest,owner,*,read_only=False):
         mounts=obj.get("Mounts") or []
         source_pairs={(x.get("Source"),x.get("Destination")) for x in mounts}
         expected_pairs={(x["source"],x["target"]) for x in spec["volumes"]}
-        if (obj.get("Id")!=ident
+        if (any(
+                mounted.get("Source")==str(BROKER_SOCKET_PATH) and
+                (mounted.get("Destination")!="/var/run/docker.sock"
+                 or mounted.get("RW") is not False)
+                for mounted in mounts)
+            or obj.get("Id")!=ident
             or cfg.get("Image")!=spec["image"]
             or cfg.get("User")!="1000:1000"
             or any(labels.get(k)!=v for k,v in expected.items())
@@ -531,6 +562,10 @@ def _prepare_volumes(project,raw):
     folder=_folder(project)
     for name,spec in raw["services"].items():
         for mount in spec.get("volumes",[]):
+            if is_facade_mount(mount):
+                if spec.get("labels",{}).get(BROKER_LABEL)!=BROKER_LABEL_VALUE:
+                    raise AppError("stage_broker_mount_scope_mismatch",403)
+                continue
             path=Path(mount["source"])
             if path.parent!=folder/name or not path.name.startswith("volume-"):
                 raise AppError("invalid_stage_mount_source",403)

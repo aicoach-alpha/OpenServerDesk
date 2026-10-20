@@ -15,6 +15,7 @@ import re
 from appstore_compatibility_matrix import listing as appstore_matrix
 from stage_apps import AppError
 from stage_unified_inventory import inventory
+from stage_host_socket import PILOT_ID, ADAPTER
 
 IDENTITY=re.compile(r"[a-zA-Z0-9_.:-]{1,115}\Z")
 HOST_CAPABILITIES=frozenset((
@@ -63,6 +64,12 @@ def contracts():
         "scope":"authenticated_operator_stage_host_broker_v1",
         "contracts":apps,
         "count":len(apps),
+        "curated_stage_socket_pilots":[{
+            "app_id":PILOT_ID,"adapter":ADAPTER,
+            "real_docker_socket_exposed":False,
+            "production_mutation_allowed":False,
+            "runtime_functionality_proven":False,
+        }],
         "stage_inventory_read_interface_count":sum(
             READONLY_CAPABILITY in item["available_operator_interfaces"]
             for item in apps),

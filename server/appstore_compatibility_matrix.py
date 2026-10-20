@@ -10,6 +10,7 @@ import yaml
 from casaos_appstore import _index, STORE_ROOT, SAFE_LOADER, MAX_COMPOSE_BYTES
 from stage_store_compiler import analyze
 from stage_store_general import _read_only_targets
+from stage_host_socket import eligible as host_socket_eligible
 from stage_apps import AppError
 
 _cache_lock=threading.Lock()
@@ -113,10 +114,15 @@ def _evaluate(item, evidence):
     try:
         with path.open("r",encoding="utf-8") as handle:
             doc=yaml.load(handle,Loader=SAFE_LOADER)
-        plan=analyze(doc,resolver=lambda source:None)
+        plan=analyze(doc,resolver=lambda source:None,app_id=item["id"])
+        brokered=host_socket_eligible(item["id"],doc)
         services=doc["services"]
         gaps=sorted({option for spec in services.values()
                      for option in SOURCE_OPTIONS if option in spec})
+        if brokered:
+            gaps.extend(("original_host_docker_socket_never_mounted",
+                         "stage_only_readonly_docker_facade",
+                         "container_logs_and_host_docker_api_unavailable"))
         if any(spec.get("volumes") for spec in services.values()):
             gaps.append("original_volume_sources")
         if any(_read_only_targets(spec) for spec in services.values()):

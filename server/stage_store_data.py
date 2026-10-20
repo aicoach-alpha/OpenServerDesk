@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 from stage_apps import AppError
 from stage_store_compiler import STAGE
+from stage_host_socket import is_facade_mount
 from stage_postgres_integrity import is_qui_pg, verify as verify_pg_cold
 
 ROOT=Path(STAGE)
@@ -30,6 +31,8 @@ def _volumes(project,manifest):
     out=[]
     for service,config in sorted(manifest["services"].items()):
         for i,m in enumerate(config.get("volumes",[])):
+            if is_facade_mount(m):
+                continue  # socket is a capability, never stage user data
             rel=f"{service}/volume-{i}"
             path=root/rel
             if (m.get("source")!=str(path) or not path.is_dir() or path.is_symlink()

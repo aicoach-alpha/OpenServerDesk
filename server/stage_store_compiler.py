@@ -8,6 +8,12 @@ import re
 import shutil
 import subprocess
 from stage_store_general import _find_catalog_definition, _mount_targets, AppError, _read_only_targets
+from stage_host_socket import (
+    eligible as host_socket_eligible,
+    adapted_service as host_socket_adapted,
+    socket_mount as host_socket_mount,
+    PILOT_SERVICE, LABEL as HOST_SOCKET_LABEL, LABEL_VALUE as HOST_SOCKET_LABEL_VALUE,
+)
 from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environments as qui_environments, HEALTH as QUI_HEALTH
 
 MAX_SERVICES=12
@@ -128,7 +134,7 @@ def catalog_tcp_port(service):
             return n
     return None
 
-def analyze(doc, resolver=resolve_image):
+def analyze(doc, resolver=resolve_image, *, app_id=None):
     if not isinstance(doc,dict) or not isinstance(doc.get("services"),dict):
         raise AppError("invalid_catalog_compose",409)
     source=doc["services"]
@@ -143,8 +149,11 @@ def analyze(doc, resolver=resolve_image):
         image=service.get("image")
         if not isinstance(image,str) or not IMAGE.fullmatch(image):
             raise AppError("invalid_catalog_image",409)
-        targets=_mount_targets(service)
-        mounts_total+=len(targets)
+        brokered=host_socket_eligible(app_id,doc) and name==PILOT_SERVICE
+        sandbox_service=(host_socket_adapted(app_id,doc,name,service)
+                         if brokered else service)
+        targets=_mount_targets(sandbox_service)
+        mounts_total+=len(targets)+(1 if brokered else 0)
         if mounts_total>MAX_TOTAL_MOUNTS:
             raise AppError("too_many_catalog_mounts",409)
         deps=dependencies(service)
@@ -153,7 +162,8 @@ def analyze(doc, resolver=resolve_image):
         edges[name]=deps
         specs.append({"name":name,"image":image,"immutable_image":resolver(image),
                       "mount_targets":targets,
-                      "read_only_targets":sorted(_read_only_targets(service) & set(targets)),
+                      "read_only_targets":sorted(_read_only_targets(sandbox_service) & set(targets)),
+                      "host_socket_adapter":brokered,
                       "depends_on":deps,
                       "dependency_conditions":{dep:((service.get("depends_on") or {}).get(dep,{}).get(
                           "condition","service_started") if isinstance(service.get("depends_on"),dict)
@@ -191,7 +201,7 @@ def analyze(doc, resolver=resolve_image):
 
 def preview(app_id):
     known,doc=_find_catalog_definition(app_id)
-    plan=analyze(doc)
+    plan=analyze(doc,app_id=app_id)
     return {"id":app_id,"title":known["title"],
             "outbound_network_pilot":_outbound_pilot(app_id,doc,plan),
             "service_count":len(plan["services"]),
@@ -211,7 +221,7 @@ def compile_stage(project, app_id, host_port=None):
     if not re.fullmatch(r"osd-compiled-[0-9a-f]{12}\Z",project):
         raise AppError("invalid_compiler_project",400)
     _,doc=_find_catalog_definition(app_id)
-    plan=analyze(doc)
+    plan=analyze(doc,app_id=app_id)
     if not plan["all_images_cached"]:
         raise AppError("one_or_more_images_not_cached",409)
     outbound=_outbound_pilot(app_id,doc,plan)
@@ -233,6 +243,8 @@ def compile_stage(project, app_id, host_port=None):
             if target in spec["read_only_targets"]:
                 mount["read_only"]=True
             volumes.append(mount)
+        if spec["host_socket_adapter"]:
+            volumes.append(host_socket_mount())
         result={
             "image":spec["immutable_image"],"pull_policy":"never",
             "networks":[network],"cap_drop":["ALL"],
@@ -245,6 +257,8 @@ def compile_stage(project, app_id, host_port=None):
                       "osd.m1.compiled.service":name,
                       "osd.m1.compiled.app":app_id},
         }
+        if spec["host_socket_adapter"]:
+            result["labels"][HOST_SOCKET_LABEL]=HOST_SOCKET_LABEL_VALUE
         if qui:
             result["environment"]=qui_env[name]
             if name=="postgres":
