@@ -8,8 +8,8 @@ Type=simple
 Environment=OSD_HOST=192.168.31.31
 Environment=OSD_PORT=18691
 Environment=OSD_DEPLOYMENT_TIER=alpha
-WorkingDirectory=/home/andre/openserverdesk-alpha/releases/0.7.0-alpha.22/server
-ExecStart=/usr/bin/python3 -B /home/andre/openserverdesk-alpha/releases/0.7.0-alpha.22/server/app.py
+WorkingDirectory=/home/andre/openserverdesk-alpha/releases/0.7.0-alpha.23/server
+ExecStart=/usr/bin/python3 -B /home/andre/openserverdesk-alpha/releases/0.7.0-alpha.23/server/app.py
 Restart=always
 RestartSec=3
 NoNewPrivileges=yes

@@ -30,17 +30,21 @@ CID_REF=re.compile(r"[a-f0-9]{12,64}\Z")
 PROJECT=re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
 PREFIX=re.compile(r"/v[0-9]{1,2}\.[0-9]{1,2}(?=/|$)")
 MAX_CONTAINERS=16
+_CACHE_LOCK=threading.Lock()
+_CACHE_ROWS=()
+_CACHE_EXPIRES=0.0
+STAGE_INVENTORY_TTL=3.0
 MAX_LOG_BYTES=64*1024
 MAX_LOG_TAIL=160
 MAX_LOG_SECONDS=5.5
 _LOG_SLOTS=threading.BoundedSemaphore(2)
 _EVENT_SLOTS=threading.BoundedSemaphore(2)
-_STATS_SLOTS=threading.BoundedSemaphore(2)
-MAX_EVENT_SECONDS=18.0
-MAX_STATS_SECONDS=16.0
+_STATS_SLOTS=threading.BoundedSemaphore(4)
+MAX_EVENT_SECONDS=38.0
+MAX_STATS_SECONDS=25.0
 
 
-def stage_containers():
+def _refresh_stage_containers():
     # Lazy import avoids import cycles during stage compiler startup.
     from stage_store_runtime import _projects,_current,QUI_APP
     from stage_store_runtime import _folder
@@ -77,6 +81,23 @@ def stage_containers():
             if len(result)>MAX_CONTAINERS:
                 raise AppError("stage_broker_container_limit",503)
     return result
+
+
+def stage_containers(*,fresh=False):
+    """Short-lived, provenance-verified stage inventory.
+
+    A refresh is serialized, preventing ten parallel Docker inspect sequences
+    from Dozzle events/stats/listing from overwhelming the NAS. Container IDs
+    cannot be reused for unrelated production containers.
+    """
+    global _CACHE_ROWS,_CACHE_EXPIRES
+    with _CACHE_LOCK:
+        if not fresh and _CACHE_ROWS and time.monotonic()<_CACHE_EXPIRES:
+            return list(_CACHE_ROWS)
+        records=_refresh_stage_containers()
+        _CACHE_ROWS=tuple(records)
+        _CACHE_EXPIRES=time.monotonic()+STAGE_INVENTORY_TTL
+        return list(records)
 
 
 def _resolve_stage_item(reference, rows=None):
@@ -491,10 +512,10 @@ class Handler(BaseHTTPRequestHandler):
 class Server(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
     daemon_threads=True
     allow_reuse_address=False
-    request_queue_size=12
+    request_queue_size=20
 
     def __init__(self,*args,**kwargs):
-        self._slots=threading.BoundedSemaphore(8)
+        self._slots=threading.BoundedSemaphore(16)
         super().__init__(*args,**kwargs)
 
     def process_request(self,request,client_address):
