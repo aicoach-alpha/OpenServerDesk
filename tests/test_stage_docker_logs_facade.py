@@ -40,6 +40,12 @@ class DockerLogsContract(unittest.TestCase):
             "since=2026-10-20T08%3A30%3A00.123456789Z")["since"],
             "2026-10-20T08:30:00.123456789Z")
         self.assertIsNone(facade._log_request("until=0")["until"])
+        self.assertEqual(facade._log_request("since=1760949000.123456789")["since"],
+                         "1760949000.123456789")
+        self.assertIsNone(facade._log_request("until=0.000000000")["until"])
+        self.assertEqual(facade._log_request(
+            "since=2026-10-20T08%3A30%3A00.123")["since"],
+            "2026-10-20T08:30:00.123")
         for query in ("tail=90000","tail=-1","tail=10&tail=50",
                       "details=true","filters=anything","since=../secret",
                       "stdout=false&stderr=false","until=notadate",

@@ -130,9 +130,15 @@ def _safe_log_time(raw):
         if value>4_102_444_800:  # future beyond 2100 is not meaningful
             raise AppError("invalid_stage_log_timestamp",400)
         return str(value)
+    fraction=re.fullmatch(r"([0-9]{1,11})\.([0-9]{1,9})",raw)
+    if fraction:
+        if int(fraction.group(1))>4_102_444_800:
+            raise AppError("invalid_stage_log_timestamp",400)
+        return (None if not int(fraction.group(1)) and
+                not int(fraction.group(2)) else raw)
     iso=re.fullmatch(
         r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
-        r"(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})",raw)
+        r"(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})?",raw)
     if iso is None:
         raise AppError("invalid_stage_log_timestamp",400)
     try:
