@@ -22,6 +22,7 @@ from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVI
 from stage_store_versions import cached_versions, current_tags, target_image, check_runtime_contract
 from stage_host_socket import (
     approved_app as broker_app_approved,
+    DOCKPEEK_ID,
     LABEL as BROKER_LABEL,
     LABEL_VALUE as BROKER_LABEL_VALUE,
     is_facade_mount,
@@ -29,6 +30,10 @@ from stage_host_socket import (
 )
 from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
+from stage_dockpeek_secret import (
+    create as dockpeek_secret_create,
+    allow_configuration as dockpeek_env_allow,
+)
 from stage_postgres_integrity import is_qui_pg
 from stage_store_data import (
     listing as data_listing, checkpoint as data_checkpoint,
@@ -434,8 +439,9 @@ def _validate(project,manifest,owner,*,read_only=False):
             or cfg.get("restart")!="no" or cfg.get("labels")!=expected
             or cfg.get("privileged")
             or (pilot_env and not (
-                qui_readonly_allow(project,services) if read_only
-                else qui_allow(project,services)))
+                (qui_readonly_allow(project,services) if read_only
+                 else qui_allow(project,services))
+                or dockpeek_env_allow(project,services)))
             or cfg.get("env_file")
             or cfg.get("devices") or cfg.get("build")):
             raise AppError("unsafe_compiled_service_settings",403)
@@ -1022,6 +1028,8 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
             folder.mkdir(mode=0o700)
             if app_id==QUI_APP:
                 qui_secret_create(project)
+            if app_id==DOCKPEEK_ID:
+                dockpeek_secret_create(project)
             raw=compile_stage(project,app_id,host_port=_pick_port(project))
             owner=user_registry()["owner"]
             _prepare_volumes(project,raw)
