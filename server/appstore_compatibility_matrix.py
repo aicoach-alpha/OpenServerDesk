@@ -41,6 +41,17 @@ def _evaluate(item, evidence):
                      for option in SOURCE_OPTIONS if option in spec})
         if any(spec.get("volumes") for spec in services.values()):
             gaps.append("original_volume_sources")
+        original_volumes=[
+            volume for spec in services.values()
+            for volume in (spec.get("volumes") or [])
+        ]
+        if any(
+            (volume.get("target") if isinstance(volume,dict) else
+             volume.split(":")[1] if isinstance(volume,str) and ":" in volume
+             else None) in ("/etc/localtime","/etc/timezone")
+            for volume in original_volumes
+        ):
+            gaps.append("host_timezone_file_mounts_discarded")
         images=[part["image"] for part in plan["services"]]
         return {"id":item["id"],"sandbox_plan_supported":True,
                 "reason":"isolated_staging_plan_available",

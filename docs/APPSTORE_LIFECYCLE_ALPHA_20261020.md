@@ -1,10 +1,10 @@
-# OpenServerDesk 0.7.0-alpha.6 — App Store & staged lifecycle
+# OpenServerDesk 0.7.0-alpha.7 — App Store & staged lifecycle
 
 ## Shipped implementation
 - 726 CasaOS metadata records exposed through a **sanitized read-only** App
   Store endpoint; catalogue can be browsed before stage authentication.
 - Local compatibility matrix shows 576 statically constructible stage-only
-  Compose plans and 150 records requiring additional source support.
+  Compose plans and 133 records requiring additional source support.
   All results are on-demand metadata analysis; NO broad Docker UAT.
 - Supports exact `repository:tag@sha256:<digest>` references in source
   validation, image-cache preparation and immutable image-ID compilation.
@@ -22,7 +22,7 @@
   compatibility work before they function in the sandbox.
 
 ## Acceptance meaning (must not confuse)
-- Compiled **sandbox planning coverage**: 576/726 (metadata only)
+- Compiled **sandbox planning coverage**: 593/726 (metadata only)
 - Full functional CasaOS production parity: NOT PROVEN
 - Installed-app production migration: NOT PERMITTED
 - Imported original app data/Nextcloud files: NONE
@@ -37,9 +37,22 @@
 
 ## UAT and operator clarity
 
-One public browser test validated all 726 catalog records, 576 supported
+One public browser test validated all 726 catalog records, 593 supported
 static sandbox plans, compatibility filtering and read-only host inventory.
 Without an authorized staging token the prepare/install buttons must remain
 disabled and explicitly say login required. A dedicated Connect staging control
 navigates to the existing token input; role-based API authorization is still
 strictly enforced on every mutating lifecycle request.
+
+## Additional safe Compose volume coverage (Alpha .7)
+
+- Per-service staging-only volume targets expanded from 5 to 10 while
+  maintaining the global 18-target limit and the 128 MiB checkpoint quota.
+- Original /etc/localtime and /etc/timezone host-file mounts are never
+  imported; the container retains its own timezone and the compatibility
+  matrix explicitly lists this behavior difference.
+- Unsafe targets (Docker socket, privileged host resources, /proc, /sys,
+  /dev, broad /etc, /root and /home) remain strictly blocked.
+- Expected count at this release: 593 static sandbox plans / 133 requiring
+  additional support across 726 catalog entries. Never describe these
+  metadata plans as successful runtime installations or production parity.

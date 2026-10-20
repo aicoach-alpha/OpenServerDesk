@@ -26,7 +26,7 @@ from casaos_appstore import STORE_ROOT, indexed_definition, SAFE_LOADER
 ROOT=STAGE/"store-general"
 DATABASE=ROOT/"installations.json"
 MAX_INSTALLS=3
-MAX_MOUNTS=5
+MAX_MOUNTS=10
 MAX_BYTES=262144
 ID_PATTERN=re.compile(r"osd-store-[a-f0-9]{12}\Z")
 CID_PATTERN=re.compile(r"[a-f0-9]{64}\Z")
@@ -35,6 +35,9 @@ CATALOG_IMAGE_PATTERN=re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,180}(?::[A-Za-z0
 IMAGE_ID_PATTERN=re.compile(r"sha256:[a-f0-9]{64}\Z")
 SAFE_TARGET=re.compile(r"/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\Z")
 BANNED_TARGETS=("/proc","/sys","/dev","/run","/var/run","/etc","/root","/home","/mnt","/media")
+# Treat timezone file mounts as optional platform metadata. They are not
+# copied into staging and must never bind the host's /etc files.
+OPTIONAL_TIMEZONE_TARGETS=frozenset(("/etc/localtime","/etc/timezone"))
 
 def _command(*args, timeout=55):
     try:
@@ -138,8 +141,12 @@ def _mount_targets(service):
             if item.get("type") not in ("bind","volume"):
                 raise AppError("unsupported_volume_type",409)
         else:raise AppError("invalid_compose_volume",409)
-        if (not isinstance(target,str) or not SAFE_TARGET.fullmatch(target)
-            or any(target==x or target.startswith(x+"/") for x in BANNED_TARGETS)
+        if not isinstance(target,str) or not SAFE_TARGET.fullmatch(target):
+            raise AppError("unsafe_container_volume_target",409)
+        if target in OPTIONAL_TIMEZONE_TARGETS:
+            # Fresh containers use their own timezone; no host file access.
+            continue
+        if (any(target==x or target.startswith(x+"/") for x in BANNED_TARGETS)
             or target in output):
             raise AppError("unsafe_container_volume_target",409)
         output.append(target)

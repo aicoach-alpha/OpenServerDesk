@@ -18,6 +18,7 @@ from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE
+from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
 from stage_store_data import (
@@ -382,14 +383,14 @@ def _validate(project,manifest,owner,*,read_only=False):
             raise AppError("unsafe_compiled_ports",403)
         public.extend(ports)
         mounts=cfg.get("volumes",[])
-        if not isinstance(mounts,list) or len(mounts)>5:
+        if not isinstance(mounts,list) or len(mounts)>MAX_MOUNTS:
             raise AppError("unsafe_compiled_volume_count",403)
         for mount in mounts:
             if not isinstance(mount,dict) or set(mount)!={"type","source","target","bind"}:
                 raise AppError("unsafe_compiled_stage_mount",403)
             src=Path(mount["source"])
             if (mount["type"]!="bind" or mount["bind"]!={"create_host_path":False}
-                or src not in [base/name/("volume-"+str(i)) for i in range(5)]
+                or src not in [base/name/("volume-"+str(i)) for i in range(MAX_MOUNTS)]
                 or not src.is_dir() or src.is_symlink()
                 or src.stat().st_dev!=ROOT.stat().st_dev):
                 raise AppError("unsafe_compiled_stage_volume",403)

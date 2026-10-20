@@ -1607,7 +1607,7 @@ async function storeCoverageRefresh() {
     const c=report.staging_static_eligibility;
     $("store-general-coverage").textContent=
       "CasaOS definitions "+report.definitions_examined+
-      " · static staging eligible "+c.eligible_for_isolated_staging+
+      " · strict single-service sandbox eligible "+c.eligible_for_isolated_staging+
       " · multi-service "+c.requires_multiservice_engine+
       " · advanced runtime "+c.advanced_runtime_options+
       " · unpinned images "+c.image_tag_not_pinned+
