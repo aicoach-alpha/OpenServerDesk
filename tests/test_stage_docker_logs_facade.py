@@ -33,6 +33,13 @@ class DockerLogsContract(unittest.TestCase):
         self.assertEqual(accepted["tail"],120)
         self.assertTrue(accepted["follow"])
         self.assertEqual(facade._log_request("tail=all")["tail"],facade.MAX_LOG_TAIL)
+        self.assertEqual(facade._log_request(
+            "since=2026-10-20T08%3A30%3A00Z")["since"],
+            "2026-10-20T08:30:00Z")
+        self.assertEqual(facade._log_request(
+            "since=2026-10-20T08%3A30%3A00.123456789Z")["since"],
+            "2026-10-20T08:30:00.123456789Z")
+        self.assertIsNone(facade._log_request("until=0")["until"])
         for query in ("tail=90000","tail=-1","tail=10&tail=50",
                       "details=true","filters=anything","since=../secret",
                       "stdout=false&stderr=false","until=notadate",

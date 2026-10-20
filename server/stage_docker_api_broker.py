@@ -8,6 +8,7 @@ all Docker-like endpoints except the few safe GET paths are denied.
 from __future__ import annotations
 
 import json
+import datetime
 import selectors
 import struct
 import subprocess
@@ -114,6 +115,33 @@ def _resolve_stage_item(reference, rows=None):
     return options[0]
 
 
+def _safe_log_time(raw):
+    """Docker logs timestamp: Unix seconds/nanoseconds or valid RFC3339Nano."""
+    if raw in ("","0"):
+        return None
+    if not isinstance(raw,str) or len(raw)>42:
+        raise AppError("invalid_stage_log_timestamp",400)
+    if raw.isascii() and raw.isdecimal() and len(raw)<=20:
+        value=int(raw)
+        # Some Go clients provide epoch nanoseconds, but Docker CLI expects
+        # Unix seconds; reduce by 10^9 without allowing CLI option injection.
+        if len(raw)>=16:
+            value=value//1_000_000_000
+        if value>4_102_444_800:  # future beyond 2100 is not meaningful
+            raise AppError("invalid_stage_log_timestamp",400)
+        return str(value)
+    iso=re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+        r"(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})",raw)
+    if iso is None:
+        raise AppError("invalid_stage_log_timestamp",400)
+    try:
+        datetime.datetime.fromisoformat(raw.replace("Z","+00:00"))
+    except ValueError:
+        raise AppError("invalid_stage_log_timestamp",400)
+    return raw
+
+
 def _log_request(query):
     """Parse only Docker log options that cannot influence host resources."""
     if not isinstance(query,str) or len(query)>250:
@@ -145,14 +173,12 @@ def _log_request(query):
     n=int(tail)
     if not 0<=n<=MAX_LOG_TAIL:
         raise AppError("stage_log_tail_limit",400)
-    for key in ("since","until"):
-        if key in opts and (not opts[key].isascii() or
-            not opts[key].isdecimal() or len(opts[key])>11):
-            raise AppError("invalid_stage_log_timestamp",400)
+    since=_safe_log_time(opts["since"]) if "since" in opts else None
+    until=_safe_log_time(opts["until"]) if "until" in opts else None
     return {"tail":n,
             "follow":opts.get("follow") in ("true","1"),
             "timestamps":opts.get("timestamps") in ("true","1"),
-            "since":opts.get("since"),"until":opts.get("until"),
+            "since":since,"until":until,
             "stdout":opts.get("stdout") not in ("false","0"),
             "stderr":opts.get("stderr") not in ("false","0")}
 
