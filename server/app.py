@@ -36,7 +36,7 @@ VERSION = "0.6.5-staging"
 _PACKAGED_VERSION = Path(__file__).resolve().parent / "release-version.txt"
 if _PACKAGED_VERSION.is_file() and not _PACKAGED_VERSION.is_symlink():
     candidate = _PACKAGED_VERSION.read_text().strip()
-    if re.fullmatch(r"0\.6\.[0-9]+", candidate):
+    if re.fullmatch(r"(?:0\.6\.[0-9]+|0\.7\.0-alpha\.[0-9]+)", candidate):
         VERSION = candidate
 SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
 ALLOWED_SUMMARY_FIELDS = (
@@ -467,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
             except (MetricsUnavailable, InventoryUnavailable, ValueError):
                 return self.respond(503, {"error": "docker_resource_metrics_unavailable"})
         if self.path == "/health":
-            return self.respond(200, {"status":"ok","service":"openserverdesk","version":VERSION,"environment":"staging"})
+            return self.respond(200, {"status":"ok","service":"openserverdesk","version":VERSION,"environment":os.environ.get("OSD_DEPLOYMENT_TIER","staging")})
         if self.path == "/api/v1/migration/readiness":
             return self.respond(200, readiness())
         if self.path == "/api/v1/capabilities":
