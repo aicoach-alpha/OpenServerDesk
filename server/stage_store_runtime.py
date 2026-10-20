@@ -1276,6 +1276,16 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                     raise AppError(
                         "compiled_stage_install_failed_recovery_required",503
                     ) from install_error
+                # Once all stage containers, networks and the pending
+                # journal are proven gone, reclaim ONLY the empty generated
+                # scaffold. Never erase retained volumes, unexpected files,
+                # or resources that appeared since the initial validation.
+                # Failure to reclaim this optional empty scaffold must not
+                # mask the actual application startup error.
+                try:
+                    _cleanup_failed_preparation(project,folder,values)
+                except (AppError,OSError):
+                    pass
                 raise
             # A failed journal unlink must not cause the just-committed
             # healthy stage container to be deleted as a false startup fault.
