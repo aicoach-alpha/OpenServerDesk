@@ -97,6 +97,11 @@ def inventory():
                 "health_status": health_status,
                 "service_counts": service_counts,
                 "partial_failure": partial_failure,
+                # Qui root-protected secret is intentionally inspect-only;
+                # never offer it as a mutable staging lifecycle project.
+                "lifecycle_writable": not (
+                    name == "store_compiled" and
+                    entry.get("health_inspection_only") is True),
             })
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,

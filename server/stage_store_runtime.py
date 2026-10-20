@@ -34,7 +34,7 @@ PROJECT=re.compile(r"osd-compiled-[0-9a-f]{12}\Z")
 CID=re.compile(r"[0-9a-f]{64}\Z")
 OWNER=re.compile(r"[0-9a-f]{32}\Z")
 IMMUTABLE=re.compile(r"sha256:[0-9a-f]{64}\Z")
-MAX_PROJECTS=2
+MAX_PROJECTS=6
 PORT=re.compile(r"127\.0\.0\.1:(18[7-9][0-9]{2}|19[0-9]{3}):([0-9]{1,5})\Z")
 # A dedicated internal bridge lets services communicate but has no external egress.
 # A single app HTTP port may be published ONLY to local loopback.
@@ -852,6 +852,9 @@ def listing():
                         # silently downgrade to a partial-success listing.
                         raise
             return {"apps":apps,
+                    "capacity":{"limit":MAX_PROJECTS,
+                                "installed":len(values),
+                                "available":MAX_PROJECTS-len(values)},
                     "unavailable_projects":restricted,
                     "complete":not restricted and not pending,
                     "pending_recovery":sorted(pending),

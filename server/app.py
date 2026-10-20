@@ -25,6 +25,7 @@ from stage_store_runtime import listing as compiled_store_listing, operation as 
 from stage_app_gateway import issue as stage_gateway_issue, proxy as stage_gateway_proxy
 from stage_store_coverage import coverage as stage_store_coverage
 from stage_store_compiler import preview as stage_store_compile_preview
+from appstore_compatibility_matrix import listing as appstore_matrix
 from stage_compose_recovery import list_backups as compose_recovery_list, checkpoint as compose_checkpoint, restore as compose_restore, recover as compose_recover, delete as compose_delete
 from host_status import status as host_status, HostStatusError
 from stage_recovery import list_backups as stage_recovery_list, checkpoint as stage_checkpoint, restore as stage_restore, recover_interrupted as stage_recover_interrupted, delete_checkpoint as stage_delete_checkpoint
@@ -301,6 +302,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200,store_pilot_list())
             except AppError as err:
                 return self.respond(err.status,{"error":err.message})
+        if self.path == "/api/v1/appstore/catalog":
+            # Catalog entries are sanitized public metadata from the
+            # already cached platform store. No project credentials, mounts,
+            # Compose contents or user data are returned here.
+            try:
+                return self.respond(200,casaos_store_catalog())
+            except (OSError,ValueError):
+                return self.respond(503,{"error":"public_catalog_unavailable"})
+        if self.path == "/api/v1/appstore/compatibility-matrix":
+            try:
+                return self.respond(200,appstore_matrix())
+            except (OSError,ValueError,TypeError):
+                return self.respond(503,{"error":"public_store_matrix_unavailable"})
         if self.path == "/api/v1/stage/casaos-appstore" or self.path.startswith("/api/v1/stage/casaos-appstore?"):
             try:
                 self._stage_auth()

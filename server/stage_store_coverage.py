@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 import yaml
 from casaos_appstore import _source_files, _parse, STORE_ROOT, MAX_COMPOSE_BYTES
-from stage_store_general import IMAGE_PATTERN, _mount_targets, AppError
+from stage_store_general import CATALOG_IMAGE_PATTERN, _mount_targets, AppError
 
 REASONS=("eligible_for_isolated_staging","requires_multiservice_engine",
          "advanced_runtime_options","image_tag_not_pinned",
@@ -32,8 +32,8 @@ def evaluate(doc):
     if any(key in service for key in FORBIDDEN):
         return "advanced_runtime_options"
     image=service.get("image")
-    if (not isinstance(image,str) or not IMAGE_PATTERN.fullmatch(image)
-        or image.rsplit(":",1)[-1].lower()=="latest"):
+    if (not isinstance(image,str) or not CATALOG_IMAGE_PATTERN.fullmatch(image)
+        or ("@sha256:" not in image and image.rsplit(":",1)[-1].lower()=="latest")):
         return "image_tag_not_pinned"
     try:
         _mount_targets(service)

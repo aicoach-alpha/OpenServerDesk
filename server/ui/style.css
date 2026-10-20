@@ -231,3 +231,34 @@ a{color:#88dfd6}
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important;transition-duration:0s!important;animation-duration:0s!important}
 }
+
+
+/* App Store: discover -> compatibility -> isolated stage lifecycle */
+.store-compat-kpis{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 14px}
+.store-compat-kpis .hub-metric{background:#20333d;color:#b8e6db}
+.store-safety-notice{
+  font-size:12.5px;line-height:1.7;color:#a3bed0;
+  padding:13px 16px;border-left:3px solid #50b4aa;background:#172d36;
+  border-radius:5px 11px 11px 5px;margin:16px 0 22px
+}
+.store-selection{
+  background:linear-gradient(120deg,#193b3d,#1a2b42);
+  border:1px solid #407a75;border-radius:16px;padding:22px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:18px;margin:18px 0 23px
+}
+.store-selection-label{color:#8ce4d1;font-size:10px;font-weight:800;letter-spacing:1.4px}
+.store-selection h3{font-size:19px;letter-spacing:-.5px;margin:8px 0}
+.store-selection p{font-size:12.5px;max-width:640px;line-height:1.65;margin-top:6px}
+.store-selection-actions{display:flex;flex-wrap:wrap;gap:9px;flex-shrink:0}
+.store-selection-actions button{padding:10px 14px;border-radius:9px}
+#appstore-panel .table-scroll{max-height:600px;overflow:auto;border:1px solid #2c3f53;border-radius:12px}
+#appstore-panel .table-scroll thead{position:sticky;top:0;z-index:1}
+#appstore-panel .stage-control input,#appstore-panel .stage-control select{min-width:135px;flex:1;max-width:250px}
+#appstore-panel #appstore-search{min-width:230px;max-width:390px}
+#appstore-panel #appstore-status{line-height:1.7;margin-bottom:4px}
+#appstore-panel #appstore-details,#appstore-panel #appstore-compile-preview{line-height:1.7}
+@media(max-width:850px){
+  .store-selection{flex-direction:column;align-items:stretch}
+  .store-selection-actions{width:100%}
+}

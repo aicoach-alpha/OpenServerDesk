@@ -155,11 +155,13 @@
  <div class="toolbar">
   <div><h2>CasaOS App Store</h2>
    <p>Browse the real local CasaOS and community store cache.
-   This preview does not install applications or alter existing Docker workloads.</p></div>
+   Browse the complete catalogue, check compatibility, and install approved applications into isolated staging. Existing CasaOS production workloads remain unchanged.</p></div>
   <button type="button" id="appstore-refresh" disabled>Load App Store</button>
  </div>
  <div class="progress-content">
-  <p id="appstore-status" role="status">Authenticate using the staging operator credential below.</p>
+  <p id="appstore-status" role="status">Loading the local CasaOS App Store catalogue…</p>
+  <div class="store-compat-kpis" id="store-compat-kpis" aria-label="Application install planning statistics"></div>
+  <p class="store-safety-notice">App Store browsing and sandbox compatibility planning are read-only. Installing, updating, stopping and removing apps requires staging authorization. The original CasaOS production apps are not modified.</p>
   <div class="stage-control">
    <label for="appstore-search">Find an app</label>
    <input id="appstore-search" placeholder="Search applications…" autocomplete="off"/>
@@ -167,10 +169,27 @@
    <select id="appstore-category"><option value="">All categories</option></select>
    <label for="appstore-source">Store</label>
    <select id="appstore-source"><option value="">All stores</option></select>
+   <label for="appstore-compat-filter">Sandbox compatibility</label>
+   <select id="appstore-compat-filter">
+     <option value="">All</option><option value="supported">Sandbox plan supported</option>
+     <option value="blocked">Needs additional support</option>
+   </select>
   </div>
   <p id="appstore-result-count" role="status">No catalogue loaded.</p>
+  <div id="store-selection" class="store-selection" hidden>
+    <div><span class="store-selection-label">SELECTED APPLICATION</span>
+      <h3 id="store-selection-name">—</h3>
+      <p id="store-selection-status">Inspecting staging readiness…</p>
+      <p id="store-selection-gaps"></p>
+    </div>
+    <div class="store-selection-actions">
+      <button type="button" id="store-selection-prepare" disabled>Prepare image</button>
+      <button type="button" id="store-selection-install" disabled>Install in staging</button>
+      <button type="button" id="store-selection-manage" class="secondary-button">Manage installed apps</button>
+    </div>
+  </div>
   <div class="table-scroll"><table>
-    <thead><tr><th>App</th><th>Category</th><th>Store</th><th>Services</th><th>Details</th></tr></thead>
+    <thead><tr><th>App</th><th>Category</th><th>Store</th><th>Services</th><th>Compatibility</th><th>Actions</th></tr></thead>
     <tbody id="appstore-list"></tbody>
   </table></div>
   <div class="stage-control">

@@ -276,17 +276,23 @@ function hubCard(item) {
   const actions=document.createElement("div");
   actions.className="hub-actions";
   if (item.manage) {
-    actions.appendChild(stageButton("Manage staging",false,()=>hubNavigate(item.manage)));
+    if(item.lifecycleApp && stageCanWrite && item.lifecycleApp.lifecycle_writable){
+      const app=item.lifecycleApp;
+      const action=app.lifecycle==="stopped"?"start":"stop";
+      actions.appendChild(stageButton(action==="start"?"Start":"Stop",false,
+        ()=>hubStageAction(app,action)));
+      if(action==="stop")
+        actions.appendChild(stageButton("Restart",false,
+          ()=>hubStageAction(app,"restart")));
+      actions.appendChild(stageButton("Uninstall",false,
+        ()=>hubStageAction(app,"uninstall")));
+    }
+    actions.appendChild(stageButton("Details",false,()=>hubNavigate(item.manage)));
   } else if (item.store_id) {
-    actions.appendChild(stageButton(stageToken?"Review / staging install":"Connect to review",
-      false,()=>{
-        if (!stageToken) {
-          hubNavigate("stage-app-management");
-          return;
-        }
-        hubNavigate("appstore-panel");
-        appstoreDetails(item.store_id);
-      }));
+    actions.appendChild(stageButton("View compatibility",false,()=>{
+      hubNavigate("appstore-panel");
+      appstoreDetails(item.store_id);
+    }));
   } else {
     const note=document.createElement("span");
     note.className="hub-state";
@@ -329,7 +335,8 @@ function hubRender() {
             app.readiness.replaceAll("_"," ")+
             (app.service_counts?" · "+app.service_counts.running+
               "/"+app.service_counts.total+" services":""),
-          manage:hubDestinations[app.source]
+          manage:hubDestinations[app.source],
+          lifecycleApp:app
         });
       }
       for (const restricted of (hubStageData.restricted_projects||[])) {
@@ -361,8 +368,7 @@ function hubRender() {
   grid.replaceChildren(...matches.slice(0,hubLimit).map(hubCard));
   $("hub-more").hidden=matches.length<=hubLimit;
   if (hubView==="store"&&!casaosStoreData) {
-    $("hub-status").textContent=stageToken?
-      "Load the App Store using Refresh apps.":"Connect as a staging operator to browse the CasaOS Store.";
+    $("hub-status").textContent="Loading local CasaOS App Store catalogue…";
   } else if (hubView==="installed"&&!hubDockerData&&!hubStageData) {
     $("hub-status").textContent="Docker inventory unavailable; refresh to retry.";
   } else {
@@ -372,6 +378,35 @@ function hubRender() {
       (hubView==="installed"&&!stageToken?" · Connect for staging management":"")+
       (hubStageData&&hubView==="installed"&&!hubStageData.complete?
        " · staging inventory incomplete":"");
+  }
+}
+async function hubStageAction(app,action){
+  if(!stageToken||!stageCanWrite || app.lifecycle_writable!==true)return;
+  if(!["start","stop","restart","uninstall"].includes(action))return;
+  if(action==="uninstall" &&
+     !confirm("Uninstall "+app.name+" from isolated staging? Original CasaOS apps remain unchanged."))return;
+  $("hub-status").textContent="Running "+action+" on isolated staging "+app.name+"…";
+  try{
+    if(app.source==="docker")
+      await stageRequest("POST",{action,name:app.name});
+    else if(app.source==="compose")
+      await stageComposeRequest("POST",{action,project:app.project});
+    else if(app.source==="store_pilot")
+      await appstorePilotRequest("POST",{action,project:app.project});
+    else if(app.source==="store_general")
+      await storeGeneralApi("POST",{action,project:app.project});
+    else if(app.source==="store_compiled")
+      await compiledApi("POST",{action,project:app.project});
+    else throw Error("Unknown isolated staging source");
+    await hubRefresh();
+    // Refresh existing management panels without changing their permissions.
+    if(app.source==="store_compiled")await compiledRefresh();
+    else if(app.source==="store_general")await storeGeneralRefresh();
+    else if(app.source==="store_pilot")await appstorePilotRefresh();
+    else if(app.source==="compose")await stageComposeRefresh();
+    else if(app.source==="docker")await stageRefresh();
+  }catch(err){
+    $("hub-status").textContent="Staging "+action+" failed: "+err.message;
   }
 }
 async function hubRefresh(){
@@ -423,7 +458,7 @@ $("hub-tab-store").addEventListener("click",async()=>{
   hubView="store";hubLimit=12;
   $("hub-tab-store").setAttribute("aria-pressed","true");
   $("hub-tab-installed").setAttribute("aria-pressed","false");
-  if (stageToken&&!casaosStoreData)await appstoreRefresh();
+  if (!casaosStoreData)await appstoreRefresh();
   hubRender();
 });
 $("hub-search").addEventListener("input",()=>{hubLimit=12;hubRender();});
@@ -510,6 +545,7 @@ async function unifiedStageInventoryRefresh() {
     const validReadiness=["not_ready","not_verified","healthcheck_passed",
                           "healthcheck_failed","checking"];
     if (!expected.includes(app.source) || typeof app.name!=="string" ||
+        typeof app.lifecycle_writable!=="boolean" ||
         typeof app.running!=="boolean" ||
         !validHealth.includes(app.health_status) ||
         !validReadiness.includes(app.readiness) ||
@@ -658,7 +694,7 @@ async function stageRefresh() {
     $("stage-compose-refresh").disabled=true;
     $("topology-install").disabled=true;
     $("topology-refresh").disabled=true;
-    $("appstore-refresh").disabled=true;
+    $("appstore-refresh").disabled=false;
     $("appstore-pilot-install").disabled=true;
     $("appstore-pilot-refresh").disabled=true;
     $("store-general-refresh").disabled=true;
@@ -1159,45 +1195,102 @@ $("topology-install").addEventListener("click",async()=>{
 
 
 let casaosStoreData=null;
+let casaosStoreMatrix=null;
+let appstoreSelectedId=null;
 let appstoreVisibleCount=30;
-
+function appstoreCompatibilityItem(id) {
+  return casaosStoreMatrix?.byId.get(id)||null;
+}
+function appstoreSelectionSync() {
+  const panel=$("store-selection");
+  const id=appstoreSelectedId;
+  panel.hidden=!id;
+  if (!id)return;
+  const item=casaosStoreData?.apps.find(app=>app.id===id);
+  const compat=appstoreCompatibilityItem(id);
+  $("store-selection-name").textContent=item?.title||id;
+  const supported=compat?.sandbox_plan_supported===true;
+  $("store-selection-gaps").textContent=compat?.feature_gaps?.length?
+    "Source features intentionally not preserved in sandbox: "+
+      compat.feature_gaps.join(", ").replaceAll("_"," "):
+    "Only isolated staging functionality is assessed. Original CasaOS settings and data are not imported.";
+  const ready=compiledSelectedId===id || generalInstallSelection===id;
+  const prepare=compiledPrepareId===id || generalPrepareSelection===id;
+  $("store-selection-prepare").disabled=!stageCanWrite||!supported||!prepare;
+  $("store-selection-install").disabled=!stageCanWrite||!supported||!ready;
+  $("store-selection-status").textContent=!supported
+    ? "Additional compatibility work required: "+(compat?.reason||"unverified")
+    : !stageToken
+      ? "Sandbox plan available. Connect a staging operator to prepare images and install."
+      : !stageCanWrite
+        ? "Read-only operator. App lifecycle controls require a write role."
+        : ready
+          ? "Image cached and sandbox plan ready. Installation affects staging only."
+          : prepare
+            ? "Sandbox plan supported. Prepare an exact image before installing."
+            : "Checking local image cache and safe staging readiness…";
+}
 async function appstoreRefresh() {
-  if (!stageToken) {
-    $("appstore-status").textContent="Staging authentication is required.";
-    return;
-  }
   $("appstore-refresh").disabled=true;
-  $("appstore-status").textContent="Reading locally cached CasaOS App Store…";
+  $("appstore-status").textContent="Loading local CasaOS catalogue and staging compatibility…";
   try {
-    const response=await fetch("/api/v1/stage/casaos-appstore",{
-      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
-    });
-    const result=await response.json();
-    if (!response.ok)throw Error(result.error||"App Store request failed");
+    const [catalogResponse,matrixResponse]=await Promise.all([
+      fetch("/api/v1/appstore/catalog",{cache:"no-store"}),
+      fetch("/api/v1/appstore/compatibility-matrix",{cache:"no-store"})
+    ]);
+    if (!catalogResponse.ok||!matrixResponse.ok)
+      throw Error("App Store metadata unavailable ("+
+        catalogResponse.status+"/"+matrixResponse.status+")");
+    const result=await catalogResponse.json();
+    const matrix=await matrixResponse.json();
     if (result.source!=="existing_casaos_appstore_cache_readonly"
         || result.production_modified!==false
         || result.nextcloud_user_data_inspected!==false
-        || result.app_install_enabled!==false)
-      throw Error("Unexpected App Store scope");
+        || result.app_install_enabled!==false
+        || matrix.scope!=="sanitized_local_casaos_appstore_sandbox_plans"
+        || matrix.production_mutation_allowed!==false
+        || matrix.production_equivalence_proven!==false
+        || matrix.runtime_compatibility_proven!==false
+        || matrix.nextcloud_user_data_inspected!==false
+        || matrix.app_count!==result.app_count || !Array.isArray(matrix.apps))
+      throw Error("Unexpected App Store compatibility boundary");
+    const byId=new Map(matrix.apps.map(entry=>[entry.id,entry]));
+    if(byId.size!==result.app_count ||
+       !result.apps.every(item=>byId.has(item.id)) ||
+       matrix.sandbox_plan_supported+matrix.sandbox_plan_blocked!==result.app_count)
+      throw Error("Inconsistent App Store compatibility matrix");
     casaosStoreData=result;
+    casaosStoreMatrix={...matrix,byId};
     hubRender();
     const category=$("appstore-category");
-    category.replaceChildren();
-    category.add(new Option("All categories",""));
-    for (const name of result.categories) category.add(new Option(name,name));
+    const priorCategory=category.value;
+    category.replaceChildren(new Option("All categories",""));
+    for(const name of result.categories)category.add(new Option(name,name));
+    category.value=priorCategory;
     const store=$("appstore-source");
-    store.replaceChildren();
-    store.add(new Option("All stores",""));
-    for (const name of Object.keys(result.store_counts).sort())
+    const priorStore=store.value;
+    store.replaceChildren(new Option("All stores",""));
+    for(const name of Object.keys(result.store_counts).sort())
       store.add(new Option(name+" ("+result.store_counts[name]+")",name));
+    store.value=priorStore;
+    const metrics=$("store-compat-kpis");
+    metrics.replaceChildren(
+      hubMetric("catalogue apps",result.app_count),
+      hubMetric("sandbox plans supported",matrix.sandbox_plan_supported),
+      hubMetric("needing additional support",matrix.sandbox_plan_blocked),
+      hubMetric("fully digest-pinned plans",matrix.supported_with_all_images_digest_pinned)
+    );
     appstoreVisibleCount=30;
     appstoreRender();
+    appstoreSelectionSync();
     $("appstore-status").textContent=result.app_count+
-      " CasaOS catalogue records loaded from local store cache · install disabled until staging parity is proven";
-  } catch(err) {
-    $("appstore-status").textContent="App Store unavailable: "+err.message;
-  } finally {
-    $("appstore-refresh").disabled=!stageToken;
+      " available catalogue records · "+matrix.sandbox_plan_supported+
+      " statically supported sandbox plans · "+
+      "app functionality and CasaOS production equivalence not yet verified.";
+  }catch(err){
+    $("appstore-status").textContent="App Store: "+err.message;
+  }finally{
+    $("appstore-refresh").disabled=false;
   }
 }
 
@@ -1208,6 +1301,9 @@ function appstoreRender() {
   const source=$("appstore-source").value;
   const matches=casaosStoreData.apps.filter(app=>{
     return (!source||app.store===source)&&(!category||app.category===category)
+      && (!$("appstore-compat-filter").value ||
+          (appstoreCompatibilityItem(app.id)?.sandbox_plan_supported===
+           ($("appstore-compat-filter").value==="supported")))
       && (!search||[app.title,app.tagline,app.category,app.store]
                          .some(v=>String(v).toLowerCase().includes(search)));
   });
@@ -1219,6 +1315,10 @@ function appstoreRender() {
     cell(tr,app.category);
     cell(tr,app.store);
     cell(tr,app.service_count);
+    const status=cell(tr,appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
+      ? "Sandbox plan ready":"Additional support needed");
+    status.className=appstoreCompatibilityItem(app.id)?.sandbox_plan_supported
+      ? "running":"inactive";
     const actions=document.createElement("td");
     const button=document.createElement("button");
     button.type="button";
@@ -1234,26 +1334,48 @@ function appstoreRender() {
   $("appstore-more").disabled=matches.length<=appstoreVisibleCount;
 }
 async function appstoreDetails(id) {
-  $("appstore-details").textContent="Checking CasaOS App Store compatibility…";
-  try {
-    const response=await fetch("/api/v1/stage/casaos-appstore?id="+encodeURIComponent(id),{
-      cache:"no-store",headers:{"Authorization":"Bearer "+stageToken}
-    });
-    const app=await response.json();
-    if (!response.ok)throw Error(app.error||"Compatibility unavailable");
-    const risks=Object.entries(app.compatibility)
-      .filter(([key,value])=>value===true && key!=="metadata_read")
-      .map(([key])=>key.replaceAll("_"," "));
-    $("appstore-details").textContent=app.title+": "+app.service_count+
-      " service(s). Review: "+(risks.join(", ")||"none indicated")+
-      ". Production installation remains blocked.";
-    await storeGeneralPreflight(id);
-    await storeCompilerPreview(id);
-  } catch(err) {
-    $("appstore-details").textContent=err.message;
+  appstoreSelectedId=id;
+  compiledSelectedId=null;compiledPrepareId=null;
+  generalInstallSelection=null;generalPrepareSelection=null;
+  appstoreSelectionSync();
+  const item=casaosStoreData?.apps.find(row=>row.id===id);
+  if (!item) {
+    $("appstore-details").textContent="App is not present in the local catalogue.";
+    return;
   }
+  const compat=appstoreCompatibilityItem(id);
+  const risks=Object.entries(item.compatibility||{})
+    .filter(([key,value])=>value===true && key!=="metadata_read")
+    .map(([key])=>key.replaceAll("_"," "));
+  $("appstore-details").textContent=item.title+": "+item.service_count+
+    " service(s). Original Compose features: "+(risks.join(", ")||"none indicated")+
+    ". This is a fresh sandbox deployment, never an import of production data.";
+  if (stageToken && compat?.sandbox_plan_supported===true) {
+    await Promise.all([storeGeneralPreflight(id),storeCompilerPreview(id)]);
+  }
+  if(appstoreSelectedId===id)appstoreSelectionSync();
+  $("store-selection").scrollIntoView({behavior:"smooth",block:"center"});
 }
 $("appstore-refresh").addEventListener("click",appstoreRefresh);
+$("appstore-compat-filter").addEventListener("change",()=>{
+  appstoreVisibleCount=30;appstoreRender();
+});
+$("store-selection-prepare").addEventListener("click",()=>{
+  if(!appstoreSelectedId||!stageCanWrite)return;
+  if(compiledPrepareId===appstoreSelectedId) $("compiled-prepare").click();
+  else if(generalPrepareSelection===appstoreSelectedId)
+    $("store-general-prepare").click();
+});
+$("store-selection-install").addEventListener("click",()=>{
+  if(!appstoreSelectedId||!stageCanWrite)return;
+  if(compiledSelectedId===appstoreSelectedId) $("compiled-install").click();
+  else if(generalInstallSelection===appstoreSelectedId)
+    $("store-general-install").click();
+});
+$("store-selection-manage").addEventListener("click",()=>{
+  workspaceView("apps");
+});
+
 $("appstore-search").addEventListener("input",()=>{
   appstoreVisibleCount=30;appstoreRender();
 });
@@ -1454,6 +1576,7 @@ $("store-general-prepare").addEventListener("click",async()=>{
   try{
     await storeGeneralApi("POST",{action:"prepare",id});
     await storeGeneralPreflight(id);
+    appstoreSelectionSync();
   }catch(err){
     $("store-general-status").textContent="Image preparation: "+err.message;
     $("store-general-prepare").disabled=!stageCanWrite;
@@ -1541,8 +1664,11 @@ async function compiledApi(method,payload){
 async function compiledRefresh(){
   try{
     const state=await compiledApi("GET");
-    if(state.production_mutation_allowed!==false || state.migration_allowed!==false)
-      throw Error("Invalid staging ownership declaration");
+    if(state.production_mutation_allowed!==false || state.migration_allowed!==false ||
+       !state.capacity || !Number.isInteger(state.capacity.limit) ||
+       !Number.isInteger(state.capacity.installed) ||
+       state.capacity.available!==state.capacity.limit-state.capacity.installed)
+      throw Error("Invalid staging ownership or capacity declaration");
     const body=$("compiled-list");body.replaceChildren();
     for(const app of state.apps){
       const row=document.createElement("tr");
@@ -1625,6 +1751,7 @@ async function compiledRefresh(){
       row.appendChild(controls);body.appendChild(row);
     }
     $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
+      state.capacity.installed+"/"+state.capacity.limit+" staging slots in use; "+
       state.unavailable_projects.length+" restricted; "+
       state.pending_recovery.length+" pending recovery; "+
       (state.unregistered_stage_directories||[]).length+
@@ -1688,6 +1815,9 @@ $("compiled-prepare").addEventListener("click",async()=>{
     $("compiled-status").textContent="Prepared "+result.prepared_images+" image(s). "+
                                   "Select the app to confirm readiness.";
     await storeCompilerPreview(app);
+    appstoreSelectionSync();
   }catch(err){$("compiled-status").textContent="Image preparation failed: "+err.message;}
   finally{$("compiled-prepare").disabled=!stageCanWrite||!compiledPrepareId;}
 });
+
+appstoreRefresh();
