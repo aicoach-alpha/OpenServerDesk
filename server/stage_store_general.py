@@ -26,7 +26,7 @@ from casaos_appstore import STORE_ROOT, indexed_definition, SAFE_LOADER
 ROOT=STAGE/"store-general"
 DATABASE=ROOT/"installations.json"
 MAX_INSTALLS=3
-MAX_MOUNTS=10
+MAX_MOUNTS=16
 MAX_BYTES=262144
 ID_PATTERN=re.compile(r"osd-store-[a-f0-9]{12}\Z")
 CID_PATTERN=re.compile(r"[a-f0-9]{64}\Z")
@@ -34,7 +34,19 @@ IMAGE_PATTERN=re.compile(r"[a-zA-Z0-9][a-zA-Z0-9./_-]{1,180}:[a-zA-Z0-9_.-]{1,90
 CATALOG_IMAGE_PATTERN=re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,180}(?::[A-Za-z0-9_.-]{1,90})?(?:@sha256:[0-9a-f]{64})?\Z")
 IMAGE_ID_PATTERN=re.compile(r"sha256:[a-f0-9]{64}\Z")
 SAFE_TARGET=re.compile(r"/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*\Z")
-BANNED_TARGETS=("/proc","/sys","/dev","/run","/var/run","/etc","/root","/home","/mnt","/media")
+# Destinations are paths INSIDE fresh unprivileged containers. The original
+# host bind sources are never copied; all writable mounts are stage-owned.
+# Permit ordinary application state under /var/lib, /etc, /home and /root,
+# but refuse Docker daemon sockets, kernel trees and system identity paths.
+BANNED_TARGETS=("/proc","/sys","/dev","/run","/var/run","/mnt","/media",
+                "/var/lib/docker","/var/lib/containerd","/var/lib/casaos",
+                "/var/lib/kubelet","/etc/docker","/etc/ssh","/etc/ssl",
+                "/etc/pki","/root/.ssh","/root/.docker")
+BANNED_SYSTEM_FILE_TARGETS=frozenset((
+    "/etc/passwd","/etc/shadow","/etc/group","/etc/hosts",
+    "/etc/resolv.conf","/etc/machine-id","/etc/hostname",
+    "/etc/localtime","/etc/timezone",
+))
 # Treat timezone file mounts as optional platform metadata. They are not
 # copied into staging and must never bind the host's /etc files.
 OPTIONAL_TIMEZONE_TARGETS=frozenset(("/etc/localtime","/etc/timezone"))
@@ -141,13 +153,20 @@ def _mount_targets(service):
             if item.get("type") not in ("bind","volume"):
                 raise AppError("unsupported_volume_type",409)
         else:raise AppError("invalid_compose_volume",409)
-        if not isinstance(target,str) or not SAFE_TARGET.fullmatch(target):
+        if not isinstance(target,str) or not target.startswith("/"):
+            raise AppError("unsafe_container_volume_target",409)
+        # A single trailing slash is common in CasaOS metadata; normalize
+        # only the CONTAINER destination, not the source or user data.
+        target=target.rstrip("/")
+        if not SAFE_TARGET.fullmatch(target):
             raise AppError("unsafe_container_volume_target",409)
         if target in OPTIONAL_TIMEZONE_TARGETS:
             # Fresh containers use their own timezone; no host file access.
             continue
-        if (any(target==x or target.startswith(x+"/") for x in BANNED_TARGETS)
-            or target in output):
+        if (target in BANNED_SYSTEM_FILE_TARGETS or
+            any(target==x or target.startswith(x+"/") for x in BANNED_TARGETS) or
+            any(part in (".ssh",".docker") for part in target.split("/")) or
+            target in output):
             raise AppError("unsafe_container_volume_target",409)
         output.append(target)
     return output

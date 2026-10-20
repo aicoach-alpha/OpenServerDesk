@@ -262,3 +262,14 @@ a{color:#88dfd6}
   .store-selection{flex-direction:column;align-items:stretch}
   .store-selection-actions{width:100%}
 }
+
+
+/* Compact, keyboard-accessible lifecycle actions without crowded app cards. */
+.hub-lifecycle-menu{border:1px solid #36716b;border-radius:9px;background:#1b4547;color:#dcfff4;max-width:100%}
+.hub-lifecycle-menu summary{padding:9px 14px;cursor:pointer;font-size:12px;font-weight:720;user-select:none}
+.hub-lifecycle-menu summary:hover{color:#fff}
+.hub-lifecycle-menu[open]{width:100%;background:#142d37}
+.hub-menu-actions{display:flex;flex-wrap:wrap;gap:8px;padding:9px 11px 12px;border-top:1px solid #2d5b5c}
+.hub-menu-actions button{background:#24534f;color:#e0fff2;border:1px solid #386e68;border-radius:8px;padding:8px 11px}
+.hub-menu-actions button:last-child{background:#46303b;border-color:#744650;color:#ffe5e9}
+.hub-menu-actions button:last-child:hover{background:#773f4c}

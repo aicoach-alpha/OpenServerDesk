@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
-from stage_store_compiler import compile_stage, prepare_images, STAGE
+from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVICES
 from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
@@ -36,6 +36,9 @@ CID=re.compile(r"[0-9a-f]{64}\Z")
 OWNER=re.compile(r"[0-9a-f]{32}\Z")
 IMMUTABLE=re.compile(r"sha256:[0-9a-f]{64}\Z")
 MAX_PROJECTS=6
+# Bound total isolated stage resource exposure. Every compiled service has a
+# 256 MiB hard limit, so 16 services imply <=4 GiB stage memory budget.
+MAX_STAGE_SERVICES=16
 PORT=re.compile(r"127\.0\.0\.1:(18[7-9][0-9]{2}|19[0-9]{3}):([0-9]{1,5})\Z")
 # A dedicated internal bridge lets services communicate but has no external egress.
 # A single app HTTP port may be published ONLY to local loopback.
@@ -108,7 +111,7 @@ def _network_check(project,manifest,cfg,host,obj):
 
 def _dependency_map(manifest):
     services=manifest.get("services")
-    if not isinstance(services,dict) or not 1<=len(services)<=6:
+    if not isinstance(services,dict) or not 1<=len(services)<=MAX_SERVICES:
         raise AppError("invalid_compiled_services",403)
     edges={}
     for name,cfg in services.items():
@@ -335,6 +338,21 @@ def _projects():
             raise AppError("compiled_stage_registry_invalid",503)
     return values
 
+def _service_budget(values,requested=0):
+    if not isinstance(requested,int) or not 0<=requested<=MAX_SERVICES:
+        raise AppError("invalid_compiled_stage_service_allocation",403)
+    used=0
+    for project in values:
+        manifest=_read(_compose_path(project),None)
+        services=manifest.get("services") if isinstance(manifest,dict) else None
+        if not isinstance(services,dict) or not 1<=len(services)<=MAX_SERVICES:
+            raise AppError("compiled_stage_service_budget_unavailable",503)
+        used+=len(services)
+    if used+requested>MAX_STAGE_SERVICES:
+        raise AppError("compiled_stage_service_capacity",409)
+    return used
+
+
 def _validate(project,manifest,owner,*,read_only=False):
     if not isinstance(manifest,dict) or set(manifest) not in (
         {"name","services"},{"name","services","networks"}) or manifest["name"]!=project:
@@ -343,7 +361,7 @@ def _validate(project,manifest,owner,*,read_only=False):
     if "networks" in manifest:
         network,internal=_network_contract(manifest)
     services=manifest["services"]
-    if not isinstance(services,dict) or not 1<=len(services)<=6:
+    if not isinstance(services,dict) or not 1<=len(services)<=MAX_SERVICES:
         raise AppError("invalid_compiled_services",403)
     base=_folder(project)
     if base.is_symlink() or not base.is_dir():
@@ -855,7 +873,9 @@ def listing():
             return {"apps":apps,
                     "capacity":{"limit":MAX_PROJECTS,
                                 "installed":len(values),
-                                "available":MAX_PROJECTS-len(values)},
+                                "available":MAX_PROJECTS-len(values),
+                                "service_limit":MAX_STAGE_SERVICES,
+                                "services_in_use":_service_budget(values)},
                     "unavailable_projects":restricted,
                     "complete":not restricted and not pending,
                     "pending_recovery":sorted(pending),
@@ -881,6 +901,13 @@ def operation(action,app_id=None,project=None,checkpoint=None):
         if action=="install":
             if checkpoint is not None or project is not None or len(values)>=MAX_PROJECTS:
                 raise AppError("compiled_stage_capacity",409)
+            # Analyze safe catalogue metadata *before* creating a project,
+            # so capacity refusal never leaves a partial stage directory.
+            from stage_store_general import _find_catalog_definition
+            from stage_store_compiler import analyze
+            _,source=_find_catalog_definition(app_id)
+            requested=len(analyze(source,resolver=lambda image:None)["services"])
+            _service_budget(values,requested)
             project="osd-compiled-"+secrets.token_hex(6)
             if docker("ps","--all","--quiet","--no-trunc",
                       "--filter","label=com.docker.compose.project="+project):

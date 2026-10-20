@@ -10,8 +10,8 @@ import subprocess
 from stage_store_general import _find_catalog_definition, _mount_targets, AppError
 from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environments as qui_environments, HEALTH as QUI_HEALTH
 
-MAX_SERVICES=6
-MAX_TOTAL_MOUNTS=18
+MAX_SERVICES=12
+MAX_TOTAL_MOUNTS=64
 NAME=re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,35}\Z")
 IMAGE=re.compile(r"[A-Za-z0-9][A-Za-z0-9./_:-]{1,240}(?:@sha256:[0-9a-f]{64})?\Z")
 DIGEST=re.compile(r"sha256:[0-9a-f]{64}\Z")

@@ -278,14 +278,33 @@ function hubCard(item) {
   if (item.manage) {
     if(item.lifecycleApp && stageCanWrite && item.lifecycleApp.lifecycle_writable){
       const app=item.lifecycleApp;
+      const menu=document.createElement("details");
+      menu.className="hub-lifecycle-menu";
+      const toggle=document.createElement("summary");
+      toggle.textContent="Lifecycle";
+      menu.appendChild(toggle);
+      const controls=document.createElement("div");
+      controls.className="hub-menu-actions";
       const action=app.lifecycle==="stopped"?"start":"stop";
-      actions.appendChild(stageButton(action==="start"?"Start":"Stop",false,
+      controls.appendChild(stageButton(action==="start"?"Start":"Stop",false,
         ()=>hubStageAction(app,action)));
       if(action==="stop")
-        actions.appendChild(stageButton("Restart",false,
+        controls.appendChild(stageButton("Restart",false,
           ()=>hubStageAction(app,"restart")));
-      actions.appendChild(stageButton("Uninstall",false,
+      if(app.source==="store_compiled"){
+        controls.appendChild(stageButton("Update",false,
+          ()=>hubStageAction(app,"update")));
+        if(app.stage_rollback_available)
+          controls.appendChild(stageButton("Rollback",false,
+            ()=>hubStageAction(app,"rollback")));
+        controls.appendChild(stageButton(app.lifecycle==="running"?
+          "Backup + restart":"Backup",false,()=>hubStageAction(app,
+            app.lifecycle==="running"?"backup-online":"checkpoint")));
+      }
+      controls.appendChild(stageButton("Uninstall",false,
         ()=>hubStageAction(app,"uninstall")));
+      menu.appendChild(controls);
+      actions.appendChild(menu);
     }
     actions.appendChild(stageButton("Details",false,()=>hubNavigate(item.manage)));
   } else if (item.store_id) {
@@ -382,9 +401,16 @@ function hubRender() {
 }
 async function hubStageAction(app,action){
   if(!stageToken||!stageCanWrite || app.lifecycle_writable!==true)return;
-  if(!["start","stop","restart","uninstall"].includes(action))return;
-  if(action==="uninstall" &&
-     !confirm("Uninstall "+app.name+" from isolated staging? Original CasaOS apps remain unchanged."))return;
+  const standard=["start","stop","restart","uninstall"];
+  const compiled=["update","rollback","checkpoint","backup-online"];
+  if(!standard.includes(action) &&
+     !(app.source==="store_compiled" && compiled.includes(action)))return;
+  if(action==="rollback" && !app.stage_rollback_available)return;
+  if(action==="checkpoint" && app.lifecycle!=="stopped")return;
+  if(action==="backup-online" && app.lifecycle!=="running")return;
+  if(["uninstall","update","rollback","backup-online"].includes(action) &&
+     !confirm(action+" "+app.name+" in isolated staging? "+
+       "Original CasaOS apps and data remain unchanged."))return;
   $("hub-status").textContent="Running "+action+" on isolated staging "+app.name+"…";
   try{
     if(app.source==="docker")
@@ -546,6 +572,11 @@ async function unifiedStageInventoryRefresh() {
                           "healthcheck_failed","checking"];
     if (!expected.includes(app.source) || typeof app.name!=="string" ||
         typeof app.lifecycle_writable!=="boolean" ||
+        (app.stage_revision!==null &&
+          (!Number.isInteger(app.stage_revision) || app.stage_revision<1)) ||
+        typeof app.stage_rollback_available!=="boolean" ||
+        !Number.isInteger(app.stage_checkpoint_count) ||
+        app.stage_checkpoint_count<0 ||
         typeof app.running!=="boolean" ||
         !validHealth.includes(app.health_status) ||
         !validReadiness.includes(app.readiness) ||
@@ -1676,7 +1707,11 @@ async function compiledRefresh(){
     if(state.production_mutation_allowed!==false || state.migration_allowed!==false ||
        !state.capacity || !Number.isInteger(state.capacity.limit) ||
        !Number.isInteger(state.capacity.installed) ||
-       state.capacity.available!==state.capacity.limit-state.capacity.installed)
+       state.capacity.available!==state.capacity.limit-state.capacity.installed ||
+       !Number.isInteger(state.capacity.services_in_use) ||
+       !Number.isInteger(state.capacity.service_limit) ||
+       state.capacity.services_in_use<0 ||
+       state.capacity.services_in_use>state.capacity.service_limit)
       throw Error("Invalid staging ownership or capacity declaration");
     const body=$("compiled-list");body.replaceChildren();
     for(const app of state.apps){
@@ -1760,7 +1795,9 @@ async function compiledRefresh(){
       row.appendChild(controls);body.appendChild(row);
     }
     $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
-      state.capacity.installed+"/"+state.capacity.limit+" staging slots in use; "+
+      state.capacity.installed+"/"+state.capacity.limit+" staging slots; "+
+      state.capacity.services_in_use+"/"+state.capacity.service_limit+
+      " isolated service budget in use; "+
       state.unavailable_projects.length+" restricted; "+
       state.pending_recovery.length+" pending recovery; "+
       (state.unregistered_stage_directories||[]).length+

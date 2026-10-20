@@ -100,8 +100,18 @@ def inventory():
                 # Qui root-protected secret is intentionally inspect-only;
                 # never offer it as a mutable staging lifecycle project.
                 "lifecycle_writable": not (
-                    name == "store_compiled" and
-                    entry.get("health_inspection_only") is True),
+                    name == "store_compiled" and (
+                        entry.get("health_inspection_only") is True or
+                        entry.get("data_recovery_pending") is True or
+                        entry.get("online_data_recovery_pending") is True)),
+                "stage_revision": (
+                    entry.get("revision") if name == "store_compiled" else None),
+                "stage_rollback_available": (
+                    entry.get("application_data_rollback") is True
+                    if name == "store_compiled" else False),
+                "stage_checkpoint_count": (
+                    len(entry.get("data_checkpoints", []))
+                    if name == "store_compiled" else 0),
             })
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,
