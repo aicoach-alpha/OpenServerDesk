@@ -192,12 +192,21 @@ async function unifiedStageInventoryRefresh() {
   const counts=result.counts;
   const expected=["docker","compose","store_pilot","store_general","store_compiled"];
   const unavailable=result.unavailable_sources;
-  if (!Array.isArray(unavailable) ||
+  const partial=result.partial_sources;
+  const restricted=result.restricted_projects;
+  if (!Array.isArray(unavailable) || !Array.isArray(partial) ||
+      !Array.isArray(restricted) ||
       unavailable.some(key=>!expected.includes(key)) ||
+      partial.some(key=>key!=="store_compiled" || unavailable.includes(key)) ||
       new Set(unavailable).size!==unavailable.length ||
-      result.complete!==(unavailable.length===0) ||
+      new Set(partial).size!==partial.length ||
+      result.complete!==(unavailable.length===0 && partial.length===0) ||
       !expected.every(key=>unavailable.includes(key)?
-        counts[key]===null:(Number.isInteger(counts[key]) && counts[key]>=0)))
+        counts[key]===null:(Number.isInteger(counts[key]) && counts[key]>=0)) ||
+      restricted.some(r=>r.source!=="store_compiled" ||
+        typeof r.project!=="string" ||
+        !["protected_stage_credentials","pending_staging_recovery"].includes(r.reason)) ||
+      (partial.includes("store_compiled") !== (restricted.length>0)))
     throw Error("Invalid unified inventory source availability");
   if (!Array.isArray(result.applications) ||
       result.applications.length!==result.total ||
@@ -263,6 +272,17 @@ async function unifiedStageInventoryRefresh() {
     tr.appendChild(actionCell);
     rows.push(tr);
   }
+  for (const restrictedProject of restricted) {
+    const tr=document.createElement("tr");
+    cell(tr,restrictedProject.source);
+    cell(tr,"Restricted stage project");
+    cell(tr,restrictedProject.project);
+    cell(tr,"restricted");
+    cell(tr,restrictedProject.reason==="protected_stage_credentials"?
+      "Root-protected credentials":"Staging recovery required");
+    cell(tr,"—");
+    rows.push(tr);
+  }
   tbody.replaceChildren(...rows);
   const lifecycle=result.lifecycle_counts;
   if (!lifecycle || !Number.isInteger(lifecycle.running) ||
@@ -279,7 +299,9 @@ async function unifiedStageInventoryRefresh() {
     " · "+lifecycle.running+" running · "+
     lifecycle.partially_running+" partially running · "+
     lifecycle.stopped+" stopped"+
-    (result.complete?"":" · Incomplete inventory: "+unavailable.join(", "));
+    (result.complete?"":" · Incomplete inventory: "+
+      [...unavailable,...partial.map(x=>x+" (restricted)")].join(", "))+
+    (restricted.length?" · "+restricted.length+" project(s) restricted":"");
 }
 async function stageRefresh() {
   try {
@@ -1283,6 +1305,20 @@ async function compiledRefresh(){
       }
       row.appendChild(controls);body.appendChild(row);
     }
+    if (!Array.isArray(state.unavailable_projects))
+      throw Error("Invalid compiled protected staging project list");
+    for (const restrictedProject of state.unavailable_projects) {
+      if (restrictedProject.reason!=="protected_stage_credentials" ||
+          typeof restrictedProject.project!=="string")
+        throw Error("Invalid compiled protected project");
+      const row=document.createElement("tr");
+      cell(row,restrictedProject.project);
+      cell(row,"Protected staging credentials");
+      cell(row,"Restricted — cannot verify health");
+      cell(row,"—");
+      cell(row,"—");
+      body.appendChild(row);
+    }
     for(const project of state.pending_recovery){
       const row=document.createElement("tr");
       cell(row,project);cell(row,"Recovery required");
@@ -1291,8 +1327,11 @@ async function compiledRefresh(){
       controls.appendChild(stageButton("Recover",!stageCanWrite,()=>compiledAct("recover",project)));
       row.appendChild(controls);body.appendChild(row);
     }
-    $("compiled-status").textContent=state.apps.length+" managed project(s); "+
-      state.pending_recovery.length+" pending recovery. Image/config rollback only; not database contents.";
+    $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
+      state.unavailable_projects.length+" restricted; "+
+      state.pending_recovery.length+" pending recovery; "+
+      (state.unregistered_stage_directories||[]).length+
+      " unregistered staging directorie(s). Image/config rollback only; not database contents.";
     $("compiled-refresh").disabled=false;
   }catch(err){$("compiled-status").textContent="Managed store: "+err.message;}
 }

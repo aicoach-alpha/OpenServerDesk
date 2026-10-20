@@ -814,16 +814,40 @@ def listing():
     try:
         with guarded():
             root=_root()
+            values=_projects()
             pending=[]
+            unregistered=[]
             for child in root.iterdir():
                 if PROJECT.fullmatch(child.name) and not child.is_symlink():
+                    if child.name not in values:
+                        # Legacy root-only projects are NOT managed by this
+                        # registry. Do not traverse their protected data.
+                        unregistered.append(child.name)
+                        continue
                     j=child/"pending.json"
                     if j.is_file() or j.is_symlink():
                         pending.append(child.name)
-            values=_projects()
-            apps=[_summary(p,e) for p,e in sorted(values.items()) if p not in pending]
+            apps=[]
+            restricted=[]
+            for project,entry in sorted(values.items()):
+                if project in pending:
+                    continue
+                try:
+                    apps.append(_summary(project,entry))
+                except AppError as err:
+                    if (entry["app_id"]==QUI_APP and
+                            err.message=="qui_stage_secret_access_denied"):
+                        restricted.append({"project":project,
+                                           "reason":"protected_stage_credentials"})
+                    else:
+                        # Provenance violations and other faults must not
+                        # silently downgrade to a partial-success listing.
+                        raise
             return {"apps":apps,
+                    "unavailable_projects":restricted,
+                    "complete":not restricted and not pending,
                     "pending_recovery":sorted(pending),
+                    "unregistered_stage_directories":sorted(unregistered),
                     "scope":"isolated_compiled_appstore_runtime",
                     "application_data_rollback":any(a["application_data_rollback"] for a in apps),
                     "migration_allowed":False,"production_mutation_allowed":False}

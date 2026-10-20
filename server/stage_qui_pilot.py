@@ -62,6 +62,10 @@ def credential(project):
             or stat.st_dev!=ROOT.stat().st_dev):
         raise AppError("qui_stage_secret_unsafe",403)
     try:row=json.loads(path.read_text())
+    except PermissionError as err:
+        # Preserve the root-only credential; a read-only staging listing
+        # may report this project as restricted instead of exposing it.
+        raise AppError("qui_stage_secret_access_denied",503) from err
     except (OSError,ValueError):
         raise AppError("qui_stage_secret_corrupt",503)
     if (not isinstance(row,dict) or set(row)!={"version","password"}

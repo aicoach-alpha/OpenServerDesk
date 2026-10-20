@@ -27,6 +27,8 @@ def inventory():
     counts = {}
     applications = []
     unavailable_sources = []
+    partial_sources = []
+    restricted_projects = []
     for name, result, key in sources:
         if result is None:
             counts[name] = None
@@ -36,6 +38,27 @@ def inventory():
             raise ValueError("unsafe_stage_inventory_scope")
         entries = result[key]
         counts[name] = len(entries)
+        if name == "store_compiled":
+            pending = result.get("pending_recovery", [])
+            unavailable = result.get("unavailable_projects", [])
+            if not isinstance(pending,list) or not isinstance(unavailable,list):
+                raise ValueError("invalid_compiled_project_availability")
+            for project in unavailable:
+                if (not isinstance(project,dict) or
+                        project.get("reason")!="protected_stage_credentials" or
+                        not isinstance(project.get("project"),str)):
+                    raise ValueError("invalid_restricted_stage_project")
+                restricted_projects.append({
+                    "source":name,"project":project["project"],
+                    "reason":"protected_stage_credentials"})
+            for project in pending:
+                if not isinstance(project,str):
+                    raise ValueError("invalid_pending_stage_project")
+                restricted_projects.append({
+                    "source":name,"project":project,
+                    "reason":"pending_staging_recovery"})
+            if unavailable or pending:
+                partial_sources.append(name)
         for entry in entries:
             if entry.get("production_mutation_allowed", False) is not False:
                 raise ValueError("unsafe_stage_application_scope")
@@ -78,8 +101,10 @@ def inventory():
     return {"scope": "stage_owned_inventory_only",
             "counts": counts,
             "total": sum(value for value in counts.values() if value is not None),
-            "complete": not unavailable_sources,
+            "complete": not unavailable_sources and not partial_sources,
             "unavailable_sources": unavailable_sources,
+            "partial_sources": partial_sources,
+            "restricted_projects": restricted_projects,
             "applications": applications,
             "lifecycle_counts": {
                 "running": sum(1 for app in applications if app["running"]),
