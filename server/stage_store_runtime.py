@@ -18,6 +18,7 @@ from pathlib import Path
 from stage_apps import AppError, guarded, registry as user_registry
 from stage_multiservice_health import assess as assess_multiservice_health
 from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVICES
+from stage_store_versions import cached_versions, target_image
 from stage_store_general import MAX_MOUNTS
 from stage_qui_pilot import APP as QUI_APP, create as qui_secret_create, allow_configuration as qui_allow, allow_configuration_readonly as qui_readonly_allow
 from stage_postgres_integrity import is_qui_pg
@@ -634,6 +635,11 @@ def _summary(project,entry,*,read_only=False):
         row["readiness"]=health_by_name[row["name"]]["readiness"]
     return {"project":project,"app_id":entry["app_id"],
             "revision":entry["revision"],
+            "cached_image_versions":(
+                cached_versions(entry["app_id"],docker)
+                if len(manifest["services"])==1 and
+                   not (read_only and entry["app_id"]==QUI_APP)
+                else []),
             "health_inspection_only": bool(read_only and entry["app_id"]==QUI_APP),
             "credential_provenance": (
                 "root_protected_unverified" if read_only and entry["app_id"]==QUI_APP
@@ -936,8 +942,10 @@ def listing():
         # Never bypass root-protected staging recovery/credential files.
         raise AppError("compiled_stage_metadata_permission_denied",503) from err
 
-def operation(action,app_id=None,project=None,checkpoint=None):
-    if action not in ("prepare","install","finish-install","start","stop","restart","uninstall","update","rollback","recover",
+def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
+    if image_tag is not None and action!="switch-version":
+        raise AppError("unexpected_stage_image_version",400)
+    if action not in ("prepare","install","finish-install","start","stop","restart","uninstall","update","switch-version","rollback","recover",
                       "checkpoint","restore-data","recover-data",
                       "backup-online","restore-online","recover-online","delete-checkpoint"):
         raise AppError("invalid_compiled_stage_action",400)
@@ -1156,13 +1164,23 @@ def operation(action,app_id=None,project=None,checkpoint=None):
         # Version changes are now accompanied by cold stage-volume snapshots
         # and an exact config-linked restore checkpoint.
         previous=_file(folder/"previous.json")
-        if action=="update":
+        if action in ("update","switch-version"):
+            if action=="switch-version" and (
+                not isinstance(image_tag,str) or app_id is not None or
+                checkpoint is not None):
+                raise AppError("invalid_stage_image_version_request",400)
             new_raw=compile_stage(project,entry["app_id"],
                                   host_port=_published_port(manifest))
+            if action=="switch-version":
+                if len(new_raw["services"])!=1:
+                    raise AppError("version_switch_requires_single_service",409)
+                image=target_image(entry["app_id"],image_tag)
+                next(iter(new_raw["services"].values()))["image"]=image
             updated=_manifest(project,entry["app_id"],entry["owner"],new_raw)
             _validate(project,updated,entry["owner"])
             if updated==manifest:
-                return {"operation":"no_change","app":_summary(project,entry)}
+                return {"operation":"no_change","app":_summary(project,entry),
+                        "production_mutation_allowed":False}
             if entry["revision"]>=500:
                 raise AppError("compiled_stage_revision_limit",409)
             target=updated
@@ -1171,5 +1189,10 @@ def operation(action,app_id=None,project=None,checkpoint=None):
             if target is None:
                 raise AppError("no_previous_compiled_stage_image",409)
             _validate(project,target,entry["owner"])
-        return _versioned_change(project,entry,values,manifest,services,
-                                 action,target,journal,previous)
+        result=_versioned_change(project,entry,values,manifest,services,
+                                 "update" if action=="switch-version" else action,
+                                 target,journal,previous)
+        if action=="switch-version":
+            result["operation"]="switched_version"
+            result["selected_version"]=image_tag
+        return result

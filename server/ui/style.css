@@ -273,3 +273,13 @@ a{color:#88dfd6}
 .hub-menu-actions button{background:#24534f;color:#e0fff2;border:1px solid #386e68;border-radius:8px;padding:8px 11px}
 .hub-menu-actions button:last-child{background:#46303b;border-color:#744650;color:#ffe5e9}
 .hub-menu-actions button:last-child:hover{background:#773f4c}
+
+
+/* Version switching is opt-in and only lists cached images of the app repo. */
+.stage-version-control{display:flex;align-items:center;flex-wrap:wrap;
+  gap:8px;padding:8px;margin:8px 0;border-radius:10px;
+  background:#17373a;border:1px solid #336f68}
+.stage-version-select{max-width:190px;min-width:100px;padding:9px 11px;
+  background:#102333;color:#e7fff5;border:1px solid #4b8078;
+  border-radius:8px}
+.stage-version-select:focus-visible{outline:2px solid #8ce7ce}

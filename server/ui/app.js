@@ -1776,6 +1776,21 @@ async function compiledRefresh(){
         controls.appendChild(stageButton(action,!stageCanWrite || app.health_inspection_only===true,
           ()=>compiledAct(action==="Backup + restart"?"backup-online":action,app.project)));
       }
+      const versions=app.cached_image_versions;
+      if(Array.isArray(versions) && versions.length && versions.length<=32 &&
+         versions.every(x=>typeof x==="string" && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,89}$/.test(x)) &&
+         !app.health_inspection_only && !app.data_recovery_pending &&
+         !app.online_data_recovery_pending && app.services.length===1){
+        const selector=document.createElement("select");
+        selector.className="stage-version-select";
+        selector.setAttribute("aria-label","Cached image version for "+app.app_id);
+        for(const tag of versions)selector.add(new Option(tag,tag));
+        const wrapper=document.createElement("div");
+        wrapper.className="stage-version-control";
+        wrapper.append(selector,stageButton("Switch cached version",!stageCanWrite,
+          ()=>compiledSwitchVersion(app.project,selector.value)));
+        controls.append(wrapper);
+      }
       if(app.stage_browser_app===true
          && app.all_running && !app.data_recovery_pending
          && !app.online_data_recovery_pending
@@ -1853,6 +1868,25 @@ async function compiledOpenWeb(project){
        throw Error("Unexpected staging app gateway scope");
     window.location.assign(result.entry);
   }catch(err){$("compiled-status").textContent="Cannot open app: "+err.message;}
+}
+async function compiledSwitchVersion(project,tag){
+  if(!stageCanWrite||!stageToken||!tag)return;
+  if(!confirm("Switch "+project+" to cached image tag "+tag+
+    "? The current staging data will be checkpointed for rollback."))return;
+  $("compiled-status").textContent="Switching isolated staging image version…";
+  try{
+    const result=await compiledApi("POST",{
+      action:"switch-version",project,image_tag:tag
+    });
+    if(result.production_mutation_allowed===true)
+      throw Error("Invalid staging-only version response");
+    await compiledRefresh();
+    await updateUnifiedInventoryAfterAction();
+    $("compiled-status").textContent="Version switch: "+result.operation+
+      " · "+tag+". Rollback is available where its checkpoint is verified.";
+  }catch(err){
+    $("compiled-status").textContent="Version switch failed: "+err.message;
+  }
 }
 async function compiledAct(action,project,checkpoint){
   if(["uninstall","rollback","recover","recover-data","restore-data","restore-online","recover-online","delete-checkpoint"].includes(action) &&
