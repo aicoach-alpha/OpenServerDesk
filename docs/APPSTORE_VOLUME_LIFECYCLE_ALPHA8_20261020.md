@@ -37,3 +37,15 @@ Delivered to parallel Alpha only. CasaOS production remains unchanged.
 - Full CasaOS parity, original data import and cutover remain blocked.
 - Weighted M1 acceptance percentage remains unchanged without proof.
 - Public endpoint https://osd.vervue.my.id, origin 192.168.31.31:18691.
+
+
+## Alpha 0.7.0-alpha.9 integration correction
+- The authenticated stage-only MySpeed web gateway now permits POST/PUT/PATCH
+  from the exact Cloudflare Alpha HTTPS origin osd.vervue.my.id and the
+  already approved tailnet/LAN Alpha origins. No wildcard origin is accepted.
+- Stage web preview session cookies use Secure when issued on Alpha.
+- App Cards omit the stopped-only cold Backup control for a partially
+  running multi-service project; operator must restore a consistent state.
+- The project web gateway is intentionally **not** made generic for arbitrary
+  untrusted catalog images. Broad web application runtime compatibility
+  remains unproven until origin isolation and capability review are solved.

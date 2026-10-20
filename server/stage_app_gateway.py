@@ -6,6 +6,7 @@ Stage session cookies do not grant access to the operator API.
 """
 from __future__ import annotations
 import http.client
+import os
 import re
 import secrets
 import threading
@@ -32,6 +33,22 @@ _ALLOWED_TYPES=("text/","application/json","application/javascript",
 _REWRITE_PREFIXES=("assets/","api/","api","manifest.json","registerSW.js","sw.js",
                    "favicon.ico","socket.io/")
 _SEGMENT=re.compile(r"[A-Za-z0-9._~!$&'()+,;=:@%/-]*\Z")
+
+
+def _allowed_write_origin(origin):
+    # Mirror Handler's exact alpha/staging Host/Origin allowlist. Never
+    # allow arbitrary Origin, wildcard hosts or cloudflared proxy rewrites.
+    staging=("http://127.0.0.1:18690","http://localhost:18690")
+    if origin in staging:
+        return True
+    return (
+        os.environ.get("OSD_DEPLOYMENT_TIER")=="alpha" and
+        os.environ.get("OSD_HOST")=="192.168.31.31" and
+        os.environ.get("OSD_PORT")=="18691" and
+        origin in ("https://osd.vervue.my.id",
+                   "https://andre-nas.tail189d24.ts.net:8445",
+                   "http://192.168.31.31:18691")
+    )
 
 
 def _matching(project):
@@ -76,8 +93,10 @@ def issue(project):
         key=secrets.token_urlsafe(32)
         _sessions[key]=(project,now+TTL)
     path=PREFIX+project+"/"
+    alpha=os.environ.get("OSD_DEPLOYMENT_TIER")=="alpha"
     cookie=(COOKIE+"="+key+"; Path="+path+
-            "; Max-Age="+str(TTL)+"; HttpOnly; SameSite=Strict")
+            "; Max-Age="+str(TTL)+"; HttpOnly; SameSite=Strict"+
+            ("; Secure" if alpha else ""))
     return {"entry":path,"expires_in_seconds":TTL,
             "scope":("authenticated_qui_stage_only" if isinstance(target,tuple)
                      else "authenticated_myspeed_stage_only"),
@@ -160,7 +179,7 @@ def proxy(method,uri,cookies,headers,body=b""):
         origin=headers.get("Origin")
         if origin is None:
             raise AppError("stage_web_origin_required",403)
-        if origin not in ("http://127.0.0.1:18690","http://localhost:18690"):
+        if not _allowed_write_origin(origin):
             raise AppError("stage_web_origin_rejected",403)
     if route.startswith("/registerSW.js") or route.startswith("/sw.js"):
         return 200,"application/javascript",b"/* staging service workers disabled */",{}

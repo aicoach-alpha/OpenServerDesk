@@ -297,9 +297,10 @@ function hubCard(item) {
         if(app.stage_rollback_available)
           controls.appendChild(stageButton("Rollback",false,
             ()=>hubStageAction(app,"rollback")));
-        controls.appendChild(stageButton(app.lifecycle==="running"?
-          "Backup + restart":"Backup",false,()=>hubStageAction(app,
-            app.lifecycle==="running"?"backup-online":"checkpoint")));
+        if(["running","stopped"].includes(app.lifecycle))
+          controls.appendChild(stageButton(app.lifecycle==="running"?
+            "Backup + restart":"Backup",false,()=>hubStageAction(app,
+              app.lifecycle==="running"?"backup-online":"checkpoint")));
       }
       controls.appendChild(stageButton("Uninstall",false,
         ()=>hubStageAction(app,"uninstall")));
