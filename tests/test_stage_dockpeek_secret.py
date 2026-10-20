@@ -44,7 +44,8 @@ class DockpeekStageSecretTests(unittest.TestCase):
                     first=compiler.compile_stage(project,DOCKPEEK_ID)
                     second=compiler.compile_stage(project,DOCKPEEK_ID)
                 cfg=first["services"][DOCKPEEK_SERVICE]
-                self.assertEqual(cfg["environment"],{"SECRET_KEY":token})
+                self.assertEqual(cfg["environment"],
+                                 {"SECRET_KEY":token,"DISABLE_AUTH":"true"})
                 self.assertEqual(
                     second["services"][DOCKPEEK_SERVICE]["environment"],
                     cfg["environment"])

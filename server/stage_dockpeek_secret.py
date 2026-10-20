@@ -69,7 +69,10 @@ def credential(project):
 
 
 def environment(project):
-    return {"SECRET_KEY":credential(project)}
+    # Dockpeek's own login would require a second password-distribution
+    # workflow. This pilot is reachable only behind the authenticated
+    # OpenServerDesk staging gateway; do not expose it as a public service.
+    return {"SECRET_KEY":credential(project),"DISABLE_AUTH":"true"}
 
 
 def allow_configuration(project,services):
