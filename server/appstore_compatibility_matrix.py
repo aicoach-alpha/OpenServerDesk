@@ -9,6 +9,7 @@ import time
 import yaml
 from casaos_appstore import _index, STORE_ROOT, SAFE_LOADER, MAX_COMPOSE_BYTES
 from stage_store_compiler import analyze
+from stage_store_general import _read_only_targets
 from stage_apps import AppError
 
 _cache_lock=threading.Lock()
@@ -118,6 +119,8 @@ def _evaluate(item, evidence):
                      for option in SOURCE_OPTIONS if option in spec})
         if any(spec.get("volumes") for spec in services.values()):
             gaps.append("original_volume_sources")
+        if any(_read_only_targets(spec) for spec in services.values()):
+            gaps.append("readonly_source_content_not_imported")
         original_volumes=[
             volume for spec in services.values()
             for volume in (spec.get("volumes") or [])

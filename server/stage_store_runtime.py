@@ -440,7 +440,11 @@ def _validate(project,manifest,owner,*,read_only=False):
         if not isinstance(mounts,list) or len(mounts)>MAX_MOUNTS:
             raise AppError("unsafe_compiled_volume_count",403)
         for mount in mounts:
-            if not isinstance(mount,dict) or set(mount)!={"type","source","target","bind"}:
+            if (not isinstance(mount,dict) or
+                set(mount) not in (
+                    {"type","source","target","bind"},
+                    {"type","source","target","bind","read_only"}) or
+                ("read_only" in mount and mount["read_only"] is not True)):
                 raise AppError("unsafe_compiled_stage_mount",403)
             src=Path(mount["source"])
             if (mount["type"]!="bind" or mount["bind"]!={"create_host_path":False}

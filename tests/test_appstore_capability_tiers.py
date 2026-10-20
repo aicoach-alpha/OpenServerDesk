@@ -1,4 +1,4 @@
-"""Focused classification of the last three blocked CasaOS definitions."""
+"""Focused coverage and host capability tiers for all CasaOS definitions."""
 import sys
 import unittest
 from pathlib import Path
@@ -10,11 +10,11 @@ class RemediationTests(unittest.TestCase):
     def test_every_catalog_entry_has_precise_safe_status(self):
         data=listing()
         self.assertEqual(data["app_count"],726)
-        self.assertEqual(data["sandbox_plan_supported"],670)
+        self.assertEqual(data["sandbox_plan_supported"],672)
         self.assertEqual(data["install_mode_counts"],{
-            "isolated_stage_sandbox":670,
+            "isolated_stage_sandbox":672,
             "special_host_integration":54,
-            "unsupported_compose_metadata":2,
+            "unsupported_compose_metadata":0,
         })
         self.assertFalse(data["production_mutation_allowed"])
         self.assertFalse(data["nextcloud_user_data_inspected"])
@@ -22,11 +22,11 @@ class RemediationTests(unittest.TestCase):
         for name in ("github.com:com.bigbeartechworld.fail2ban",
                      "github.com:com.bigbeartechworld.mame"):
             item=items[name]
-            self.assertEqual(item["remediation_code"],
-                             "correct_long_form_readonly_target")
             self.assertEqual(item["install_mode"],
-                             "unsupported_compose_metadata")
-            self.assertFalse(item["sandbox_plan_supported"])
+                             "isolated_stage_sandbox")
+            self.assertTrue(item["sandbox_plan_supported"])
+            self.assertIn("readonly_source_content_not_imported",
+                          item["feature_gaps"])
         vpn=items["casaos.app:org.icewhale.v2raya"]
         self.assertEqual(vpn["remediation_code"],
                          "requires_host_dns_and_network_capabilities")

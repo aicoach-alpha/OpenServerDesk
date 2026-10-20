@@ -92,7 +92,9 @@ def _state():
             raise ValueError("bad registry")
         for project, item in entries.items():
             if (not ID_PATTERN.fullmatch(project) or not isinstance(item,dict)
-                or set(item)!={"container","owner","app_id","image","mounts"}
+                or set(item) not in (
+                    {"container","owner","app_id","image","mounts"},
+                    {"container","owner","app_id","image","mounts","read_only_mounts"})
                 or not CID_PATTERN.fullmatch(item["container"])
                 or not re.fullmatch(r"[a-f0-9]{32}",item["owner"])
                 or not isinstance(item["app_id"],str)
@@ -100,7 +102,12 @@ def _state():
                 or not isinstance(item["mounts"],list)
                 or len(item["mounts"])>MAX_MOUNTS
                 or any(not isinstance(m,str) or not SAFE_TARGET.fullmatch(m)
-                       for m in item["mounts"])):
+                       for m in item["mounts"])
+                or not isinstance(item.get("read_only_mounts",[]),list)
+                or any(not isinstance(m,str) or m not in item["mounts"]
+                       for m in item.get("read_only_mounts",[]))
+                or len(set(item.get("read_only_mounts",[]))) !=
+                       len(item.get("read_only_mounts",[]))):
                 raise ValueError("invalid staged store record")
         return entries
     except (OSError,ValueError,TypeError):
@@ -154,7 +161,16 @@ def _mount_targets(service):
             target=item.get("target")
             if item.get("type") not in ("bind","volume"):
                 raise AppError("unsupported_volume_type",409)
-            signature=("long",item.get("type"),item.get("source"),item.get("read_only",False))
+            # Some CasaOS catalog entries incorrectly put :ro inside a
+            # long-form container target. Preserve its read-only intent,
+            # but NEVER reuse the original host source.
+            suffixed=isinstance(target,str) and target.endswith(":ro")
+            if suffixed:
+                if item.get("read_only") is False:
+                    raise AppError("conflicting_container_readonly_mode",409)
+                target=target[:-3]
+            read_only=(item.get("read_only") is True or suffixed)
+            signature=("long",item.get("type"),item.get("source"),read_only)
         else:raise AppError("invalid_compose_volume",409)
         if not isinstance(target,str) or not target.startswith("/"):
             raise AppError("unsafe_container_volume_target",409)
@@ -177,6 +193,24 @@ def _mount_targets(service):
         declared[target]=signature
         output.append(target)
     return output
+
+def _read_only_targets(service):
+    """Container targets only. Host mount sources are never returned."""
+    readonly=set()
+    for item in (service.get("volumes") or []):
+        if isinstance(item,dict):
+            target=item.get("target")
+            if not isinstance(target,str):
+                continue
+            has_suffix=target.endswith(":ro")
+            normalized=(target[:-3] if has_suffix else target).rstrip("/")
+            if has_suffix or item.get("read_only") is True:
+                readonly.add(normalized)
+        elif isinstance(item,str):
+            parts=item.split(":")
+            if len(parts)==3 and parts[2]=="ro":
+                readonly.add(parts[1].rstrip("/"))
+    return readonly
 
 def preflight(app_id):
     known, doc=_find_catalog_definition(app_id)
@@ -251,7 +285,8 @@ def _container(project, record):
         or host.get("NetworkMode")!="none"
         or host.get("Privileged") is not False
         or host.get("PortBindings") or host.get("Binds")
-        or any(m.get("Type")!="bind" or m.get("RW") is not True
+        or any(m.get("Type")!="bind" or
+               m.get("RW") is not (target not in record.get("read_only_mounts",[]))
                or m.get("Source")!=str(root/"data"/str(i))
                or m.get("Destination")!=target
                for i,(m,target) in enumerate(zip(mounts,record["mounts"])))
@@ -311,6 +346,7 @@ def action(op, app_id=None, project=None):
             _,doc=_find_catalog_definition(app_id)
             service=next(iter(doc["services"].values()))
             targets=_mount_targets(service)
+            readonly=_read_only_targets(service) & set(targets)
             project="osd-store-"+secrets.token_hex(6)
             root=_root()/project
             data=root/"data"
@@ -325,7 +361,10 @@ def action(op, app_id=None, project=None):
                   "--pids-limit","64","--user","1000:1000",
                   "--tmpfs","/tmp:rw,nosuid,noexec,size=16m"]
             for idx,target in enumerate(targets):
-                args.extend(["--mount",f"type=bind,src={data/str(idx)},dst={target}"])
+                bind=f"type=bind,src={data/str(idx)},dst={target}"
+                if target in readonly:
+                    bind+=",readonly"
+                args.extend(["--mount",bind])
             for label,value in (
                 ("osd.store.general","stage-isolated"),
                 ("osd.store.owner",owner),
@@ -339,6 +378,8 @@ def action(op, app_id=None, project=None):
                 raise AppError("unrecognized_new_stage_container",503)
             record={"container":ident,"owner":owner,"app_id":app_id,
                     "image":image_id,"mounts":targets}
+            if readonly:
+                record["read_only_mounts"]=sorted(readonly)
             try:
                 _container(project,record)
                 time.sleep(2)

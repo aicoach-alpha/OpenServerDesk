@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from stage_store_general import _find_catalog_definition, _mount_targets, AppError
+from stage_store_general import _find_catalog_definition, _mount_targets, AppError, _read_only_targets
 from stage_qui_pilot import APP as QUI_APP, supported as qui_supported, environments as qui_environments, HEALTH as QUI_HEALTH
 
 MAX_SERVICES=12
@@ -152,7 +152,9 @@ def analyze(doc, resolver=resolve_image):
             raise AppError("duplicate_catalog_dependencies",409)
         edges[name]=deps
         specs.append({"name":name,"image":image,"immutable_image":resolver(image),
-                      "mount_targets":targets,"depends_on":deps,
+                      "mount_targets":targets,
+                      "read_only_targets":sorted(_read_only_targets(service) & set(targets)),
+                      "depends_on":deps,
                       "dependency_conditions":{dep:((service.get("depends_on") or {}).get(dep,{}).get(
                           "condition","service_started") if isinstance(service.get("depends_on"),dict)
                           else "service_started") for dep in deps},
@@ -224,10 +226,13 @@ def compile_stage(project, app_id, host_port=None):
         name=spec["name"]
         volumes=[]
         for i,target in enumerate(spec["mount_targets"]):
-            volumes.append({
+            mount={
                 "type":"bind","source":f"{STAGE}/{project}/{name}/volume-{i}",
                 "target":target,"bind":{"create_host_path":False},
-            })
+            }
+            if target in spec["read_only_targets"]:
+                mount["read_only"]=True
+            volumes.append(mount)
         result={
             "image":spec["immutable_image"],"pull_policy":"never",
             "networks":[network],"cap_drop":["ALL"],
