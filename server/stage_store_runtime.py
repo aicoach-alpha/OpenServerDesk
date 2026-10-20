@@ -991,6 +991,65 @@ def listing():
         # Never bypass root-protected staging recovery/credential files.
         raise AppError("compiled_stage_metadata_permission_denied",503) from err
 
+def _recover_failed_install(project,manifest,owner,values):
+    """Idempotent, provenance-checked cleanup for THIS staging project only.
+
+    Reused by the operator recovery action and by install exception
+    compensation. Never deletes the stage-owned data directory or other
+    Docker projects. Crash recovery marker is controlled by the caller.
+    """
+    if not isinstance(owner,str) or not OWNER.fullmatch(owner):
+        raise AppError("invalid_compiled_stage_owner",403)
+    _validate(project,manifest,owner)
+    # _verify_partial performs Docker inspect and proves every container
+    # belongs to this exact stage project. Reuse its IDs rather than a
+    # second unverified ps query (which creates a TOCTOU gap).
+    ids=_verify_partial(project,manifest,owner)
+    if (not isinstance(ids,list) or len(ids)>len(manifest["services"])
+        or len(ids)!=len(set(ids)) or any(
+            not isinstance(ident,str) or not CID.fullmatch(ident)
+            for ident in ids)):
+        raise AppError("unsafe_failed_install_cleanup_ids",403)
+    network=None
+    if "networks" in manifest:
+        name,internal=_network_contract(manifest)
+        network=project+"_"+name
+        existing=docker("network","ls","--quiet","--filter",
+                        "name=^"+network+"$").splitlines()
+        if len(existing)>1:
+            raise AppError("compiled_stage_network_cleanup_unverified",403)
+        if existing:
+            try:info=json.loads(docker("network","inspect",network))[0]
+            except (TypeError,ValueError,IndexError,KeyError):
+                raise AppError("compiled_stage_network_cleanup_unverified",503)
+            labels=info.get("Labels") or {}
+            attached=info.get("Containers") or {}
+            # Network ownership AND attached endpoints must be verified
+            # BEFORE the first destructive rm, not after it.
+            if (info.get("Name")!=network or info.get("Internal") is not internal
+                or labels.get("com.docker.compose.project")!=project
+                or labels.get("com.docker.compose.network")!=name
+                or not isinstance(attached,dict)
+                or not set(attached).issubset(set(ids))):
+                raise AppError("compiled_stage_network_cleanup_unverified",403)
+        else:
+            network=None
+    for ident in ids:
+        docker("rm","--force",ident)
+    if network is not None:
+        # Ensure no unknown attachment appeared during cleanup.
+        try:final=json.loads(docker("network","inspect",network))[0]
+        except (TypeError,ValueError,IndexError,KeyError):
+            raise AppError("compiled_stage_network_cleanup_unverified",503)
+        if (final.get("Name")!=network or
+            (final.get("Containers") or {}) or
+            (final.get("Labels") or {}).get("com.docker.compose.project")!=project):
+            raise AppError("compiled_stage_network_cleanup_unverified",403)
+        docker("network","rm",network)
+    values.pop(project,None)
+    _atomic(STATE,values)
+
+
 def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
     if image_tag is not None and action!="switch-version":
         raise AppError("unexpected_stage_image_version",400)
@@ -1046,9 +1105,24 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                                grace_seconds=25 if app_id==QUI_APP else 11)
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
-                journal.unlink()
-            except Exception:
+            except Exception as install_error:
+                # Qui has a deliberate delayed-readiness finalization path.
+                # Do not auto-remove a healthy-but-slow Qui install; retain
+                # its durable recovery journal and the existing owner flow.
+                if app_id==QUI_APP:
+                    raise
+                try:
+                    _recover_failed_install(project,manifest,owner,values)
+                    journal.unlink()
+                except Exception:
+                    # Fail closed: durable journal remains for owner recovery.
+                    raise AppError(
+                        "compiled_stage_install_failed_recovery_required",503
+                    ) from install_error
                 raise
+            # A failed journal unlink must not cause the just-committed
+            # healthy stage container to be deleted as a false startup fault.
+            journal.unlink()
             return {"operation":"installed","app":_summary(project,values[project])}
         if action=="finish-install":
             if (checkpoint is not None or app_id is not None
@@ -1094,30 +1168,7 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                 manifest=_read(_compose_path(project),None)
                 if not isinstance(manifest,dict):
                     raise AppError("missing_compiled_install_manifest",503)
-                _validate(project,manifest,owner)
-                _verify_partial(project,manifest,owner)
-                found=docker("ps","--all","--quiet","--no-trunc",
-                             "--filter","label=com.docker.compose.project="+project)
-                for ident in found.splitlines():
-                    if ident:
-                        docker("rm","--force",ident)
-                if "networks" in manifest:
-                    name,internal=_network_contract(manifest)
-                    network=project+"_"+name
-                    found=docker("network","ls","--quiet","--filter","name=^"+network+"$")
-                    if found:
-                        try: info=json.loads(docker("network","inspect",network))[0]
-                        except (TypeError,ValueError,IndexError):
-                            raise AppError("compiled_stage_network_cleanup_unverified",503)
-                        labels=info.get("Labels") or {}
-                        if (info.get("Name")!=network or info.get("Internal") is not internal or
-                                labels.get("com.docker.compose.project")!=project or
-                                labels.get("com.docker.compose.network")!=name or
-                                info.get("Containers")):
-                            raise AppError("compiled_stage_network_cleanup_unverified",403)
-                        docker("network","rm",network)
-                values.pop(project,None)
-                _atomic(STATE,values)
+                _recover_failed_install(project,manifest,owner,values)
             elif state.get("version")==2 and state["operation"] in ("update","rollback"):
                 entry=values.get(project)
                 if not isinstance(entry,dict):
