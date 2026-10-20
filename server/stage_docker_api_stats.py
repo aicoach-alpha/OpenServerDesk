@@ -9,6 +9,8 @@ import datetime
 import json
 import re
 import subprocess
+import threading
+import time
 
 from stage_apps import AppError
 
@@ -100,3 +102,35 @@ def snapshot(verified_row,runner=subprocess.run):
         "osd_source":"staging_verified_docker_stats_cli",
         "osd_cpu_percent":cpu,
     }
+
+
+# The Dozzle client may open multiple stats subscriptions for the same app.
+# Deduplicate expensive CLI reads by container ID, with short, bounded TTL.
+_STATS_CACHE_LOCK=threading.Lock()
+_STATS_CACHE={}
+STATS_TTL_SECONDS=7.0
+MAX_STATS_CACHE_ITEMS=16
+
+
+def cached_snapshot(verified_row,runner=subprocess.run):
+    # Cache is never an authorization boundary: the caller must first
+    # authenticate the stage project and resolve an immutable exact ID.
+    ident=verified_row.get("Id") if isinstance(verified_row,dict) else None
+    if (not isinstance(ident,str) or not CID.fullmatch(ident) or
+        verified_row.get("Labels",{}).get("osd.stage.scope")!="staging-only"):
+        raise AppError("unsafe_stage_stats_source",403)
+    if verified_row.get("State")!="running":
+        return snapshot(verified_row,runner=runner)
+    # Test runners bypass cache so the tested CLI call is always exercised.
+    if runner is not subprocess.run:
+        return snapshot(verified_row,runner=runner)
+    with _STATS_CACHE_LOCK:
+        now=time.monotonic()
+        cached=_STATS_CACHE.get(ident)
+        if cached is not None and cached[0]>now:
+            return dict(cached[1])
+        result=snapshot(verified_row,runner=runner)
+        if len(_STATS_CACHE)>=MAX_STATS_CACHE_ITEMS:
+            _STATS_CACHE.clear()
+        _STATS_CACHE[ident]=(time.monotonic()+STATS_TTL_SECONDS,result)
+        return dict(result)

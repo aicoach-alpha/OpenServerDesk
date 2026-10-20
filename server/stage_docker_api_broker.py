@@ -12,6 +12,7 @@ import datetime
 import selectors
 import struct
 import subprocess
+import sys
 import time
 import os
 import re
@@ -25,7 +26,7 @@ from urllib.parse import urlsplit,parse_qsl
 
 from stage_apps import AppError
 from stage_host_socket import SOCKET_ROOT, SOCKET_PATH
-from stage_docker_api_stats import snapshot as stage_stats_snapshot
+from stage_docker_api_stats import cached_snapshot as stage_stats_snapshot
 CID=re.compile(r"[a-f0-9]{64}\Z")
 CID_REF=re.compile(r"[a-f0-9]{12,64}\Z")
 PROJECT=re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
@@ -41,8 +42,9 @@ MAX_LOG_SECONDS=5.5
 _LOG_SLOTS=threading.BoundedSemaphore(2)
 _EVENT_SLOTS=threading.BoundedSemaphore(2)
 _STATS_SLOTS=threading.BoundedSemaphore(4)
-MAX_EVENT_SECONDS=38.0
-MAX_STATS_SECONDS=25.0
+MAX_EVENT_SECONDS=600.0
+MAX_STATS_SECONDS=180.0
+EVENT_HEARTBEAT_SECONDS=9.0
 
 
 def _refresh_stage_containers():
@@ -115,12 +117,30 @@ def _resolve_stage_item(reference, rows=None):
     return options[0]
 
 
+def _reject_log_time(raw):
+    # Diagnostic intentionally records SHAPE ONLY, never a user-supplied
+    # timestamp, arbitrary query value or application log content.
+    text=str(raw)
+    shape="".join(
+        "9" if char in "0123456789" else
+        "A" if char.isalpha() else
+        char if char in ".:-+_ /" else "?"
+        for char in text[:65])
+    print("OSD_STAGE_LOG_TIME_FORMAT len="+str(len(text))+
+          " shape="+shape,file=sys.stderr,flush=True)
+    raise AppError("invalid_stage_log_timestamp",400)
+
+
 def _safe_log_time(raw):
     """Docker logs timestamp: Unix seconds/nanoseconds or valid RFC3339Nano."""
     if raw in ("","0"):
         return None
+    # Go's zero time commonly serializes to a negative Unix timestamp with
+    # nine fractional digits; it means no lower/upper date boundary.
+    if isinstance(raw,str) and re.fullmatch(r"-[0-9]{1,11}(?:\.[0-9]{1,9})?",raw):
+        return None
     if not isinstance(raw,str) or len(raw)>42:
-        raise AppError("invalid_stage_log_timestamp",400)
+        _reject_log_time(raw)
     if raw.isascii() and raw.isdecimal() and len(raw)<=20:
         value=int(raw)
         # Some Go clients provide epoch nanoseconds, but Docker CLI expects
@@ -128,23 +148,23 @@ def _safe_log_time(raw):
         if len(raw)>=16:
             value=value//1_000_000_000
         if value>4_102_444_800:  # future beyond 2100 is not meaningful
-            raise AppError("invalid_stage_log_timestamp",400)
+            _reject_log_time(raw)
         return str(value)
     fraction=re.fullmatch(r"([0-9]{1,11})\.([0-9]{1,9})",raw)
     if fraction:
         if int(fraction.group(1))>4_102_444_800:
-            raise AppError("invalid_stage_log_timestamp",400)
+            _reject_log_time(raw)
         return (None if not int(fraction.group(1)) and
                 not int(fraction.group(2)) else raw)
     iso=re.fullmatch(
         r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
         r"(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})?",raw)
     if iso is None:
-        raise AppError("invalid_stage_log_timestamp",400)
+        _reject_log_time(raw)
     try:
         datetime.datetime.fromisoformat(raw.replace("Z","+00:00"))
     except ValueError:
-        raise AppError("invalid_stage_log_timestamp",400)
+        _reject_log_time(raw)
     return raw
 
 
@@ -400,6 +420,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.close_connection=True
             deadline=time.monotonic()+MAX_EVENT_SECONDS
+            next_heartbeat=time.monotonic()+EVENT_HEARTBEAT_SECONDS
             # Send stage-only initial state to seed the Docker event listener.
             for row in rows:
                 if row["State"]=="running":
@@ -419,6 +440,11 @@ class Handler(BaseHTTPRequestHandler):
                     if ident not in latest:
                         self._chunked(json.dumps(_container_event(row,"destroy"))+"\n")
                 previous=latest
+                if time.monotonic()>=next_heartbeat:
+                    # A JSON whitespace heartbeat prevents clients from
+                    # treating an idle event stream as a disconnected engine.
+                    self._chunked(b"\n")
+                    next_heartbeat=time.monotonic()+EVENT_HEARTBEAT_SECONDS
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
         except (BrokenPipeError,ConnectionResetError,TimeoutError):
