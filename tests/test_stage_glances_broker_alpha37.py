@@ -33,6 +33,8 @@ class GlancesCuratedStage(unittest.TestCase):
             manifest=compiler.compile_stage(self.PROJECT,GLANCES_ID,18725)
         cfg=manifest["services"][GLANCES_SERVICE]
         self.assertEqual(cfg["environment"],GLANCES_ENV)
+        self.assertEqual(cfg["environment"]["USER"],"stageglances")
+        self.assertEqual(cfg["environment"]["LOGNAME"],"stageglances")
         self.assertEqual(cfg["volumes"],[socket_mount()])
         self.assertEqual(cfg["user"],"1000:1000")
         self.assertEqual(cfg["cap_drop"],["ALL"])

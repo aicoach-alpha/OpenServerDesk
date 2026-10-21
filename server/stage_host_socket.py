@@ -21,7 +21,7 @@ GLANCES_ID="github.com:com.bigbeartechworld.glances"
 GLANCES_SERVICE="big-bear-glances"
 GLANCES_IMAGE=("nicolargo/glances:4.5.3.2-full@sha256:"
     "2d16ab0fdba4b9f61b327f78dbb8a7e7931f4967be8e1db4d37326e4680e8433")
-GLANCES_ENV={"GLANCES_OPT":"-w"}
+GLANCES_ENV={"GLANCES_OPT":"-w","USER":"stageglances","LOGNAME":"stageglances"}
 APPROVED_PILOTS={
     PILOT_ID:(PILOT_SERVICE,PILOT_IMAGE),
     DOCKPEEK_ID:(DOCKPEEK_SERVICE,DOCKPEEK_IMAGE),
