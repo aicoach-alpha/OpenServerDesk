@@ -106,7 +106,8 @@ class StageDockerImages(unittest.TestCase):
             self.assertRegex(item["Id"],r"^sha256:[a-f0-9]{64}$")
             self.assertEqual(item["Labels"]["osd.stage.scope"],
                              "staging-only")
-            self.assertFalse(item["RepoTags"])
+            self.assertTrue(set(item["RepoTags"]).issubset(
+                broker.PINNED_CATALOG_ALIASES))
             self.assertFalse(item["RepoDigests"])
 
 

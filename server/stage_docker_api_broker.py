@@ -24,12 +24,24 @@ from pathlib import Path
 from urllib.parse import urlsplit,parse_qsl
 
 from stage_apps import AppError
-from stage_host_socket import SOCKET_ROOT, SOCKET_PATH
+from stage_host_socket import SOCKET_ROOT, SOCKET_PATH, APPROVED_PILOTS
+from stage_store_compiler import resolve_image, EGRESS_PILOT_ID, EGRESS_PILOT_IMAGE
 from stage_docker_api_stats import cached_snapshot as stage_stats_snapshot
 CID=re.compile(r"[a-f0-9]{64}\Z")
 CID_REF=re.compile(r"[a-f0-9]{12,64}\Z")
 IMAGE_DIGEST=re.compile(r"sha256:[a-f0-9]{64}\Z")
 IMAGE_REF=re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
+CATALOG_TAG=re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,180}:[A-Za-z0-9_.-]{1,90}\Z")
+# This is a *fixed*, audited subset of stage app identities. A tag is never
+# read from an untrusted container label or arbitrary host Docker images.
+PINNED_SOURCE_IMAGES={
+    (app_id,service):image
+    for app_id,(service,image) in APPROVED_PILOTS.items()
+}
+PINNED_SOURCE_IMAGES[(EGRESS_PILOT_ID,"myspeed")]=EGRESS_PILOT_IMAGE
+PINNED_CATALOG_ALIASES=frozenset(
+    ref.split("@sha256:",1)[0] for ref in PINNED_SOURCE_IMAGES.values()
+)
 PROJECT=re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
 PREFIX=re.compile(r"/v[0-9]{1,2}\.[0-9]{1,2}(?=/|$)")
 MAX_CONTAINERS=16
@@ -46,6 +58,29 @@ _STATS_SLOTS=threading.BoundedSemaphore(4)
 MAX_EVENT_SECONDS=600.0
 MAX_STATS_SECONDS=180.0
 EVENT_HEARTBEAT_SECONDS=9.0
+
+
+def _verified_catalog_tag(app_id,service,image_id,*,resolver=resolve_image):
+    """Display-only alias for an exact trusted catalog source that resolves
+    locally to the already-verified immutable stage image ID.
+
+    When a tag has been retargeted or a stage image has been version-switched,
+    return no alias rather than misrepresent the installed image version.
+    Never call a host-wide Docker image list.
+    """
+    if not isinstance(image_id,str) or not IMAGE_DIGEST.fullmatch(image_id):
+        return None
+    source=PINNED_SOURCE_IMAGES.get((app_id,service))
+    if not source:
+        return None
+    alias=source.split("@sha256:",1)[0]
+    if not CATALOG_TAG.fullmatch(alias):
+        return None
+    try:
+        resolved=resolver(source)
+    except (AppError,OSError,ValueError):
+        return None
+    return alias if resolved==image_id else None
 
 
 def _refresh_stage_containers():
@@ -75,7 +110,15 @@ def _refresh_stage_containers():
                 raise AppError("stage_broker_invalid_container_or_image",503)
             # _current has already verified this immutable image against
             # the exact stage-owned container Config.Image and labels.
-            # No host-wide Docker image list/inspect operation is performed.
+            # Resolve only a fixed, trusted catalog image reference to prove
+            # the display tag still points to these exact image bytes.
+            if spec["labels"].get("osd.m1.compiled.app")!=entry["app_id"]:
+                raise AppError("stage_broker_catalog_identity_mismatch",403)
+            alias=_verified_catalog_tag(entry["app_id"],name,image_id)
+            labels={"osd.stage.scope":"staging-only",
+                    "osd.stage.project":project}
+            if alias is not None:
+                labels["osd.stage.catalog.image_tag"]=alias
             result.append({
                 "Id":ident,
                 "Names":["/osd-stage-"+project+"-"+name],
@@ -83,8 +126,7 @@ def _refresh_stage_containers():
                 "ImageID":image_id,
                 "State":"running" if item["running"] else "exited",
                 "Status":"Stage app (isolated)",
-                "Labels":{"osd.stage.scope":"staging-only",
-                          "osd.stage.project":project},
+                "Labels":labels,
                 "Ports":[],
                 "Mounts":[],
                 "NetworkSettings":{"Networks":{}},
@@ -114,11 +156,13 @@ def stage_containers(*,fresh=False):
 def stage_images(rows=None):
     """Synthesize *only* image IDs already proven by stage-owned containers.
 
-    No repo names/tags, Docker host image inventory, image configuration,
-    filesystem paths, labels from a real image, credentials or registry URLs.
+    Only fixed, locally resolved catalog tag aliases are exposed, never a
+    host-wide Docker image inventory, real image config, file paths, secrets,
+    unverified registry names or caller-supplied URLs.
     """
     rows=stage_containers() if rows is None else rows
     images={}
+    tags={}
     for row in rows:
         if not isinstance(row,dict) or (row.get("Labels") or {}).get(
                 "osd.stage.scope")!="staging-only":
@@ -128,18 +172,34 @@ def stage_images(rows=None):
             or row.get("Image")!=image_id):
             raise AppError("stage_broker_unverified_image_source",403)
         images[image_id]=images.get(image_id,0)+1
+        alias=row["Labels"].get("osd.stage.catalog.image_tag")
+        if alias is not None:
+            if (not isinstance(alias,str) or not CATALOG_TAG.fullmatch(alias)
+                or alias not in PINNED_CATALOG_ALIASES):
+                raise AppError("stage_broker_invalid_catalog_alias",403)
+            # The alias was resolved by _refresh_stage_containers against a
+            # fixed audited catalog source and the verified container digest.
+            tags.setdefault(image_id,set()).add(alias)
+            if len(tags[image_id])>MAX_CONTAINERS:
+                raise AppError("stage_broker_image_tag_limit",503)
         if len(images)>MAX_CONTAINERS:
             raise AppError("stage_broker_image_limit",503)
-    return [{
-        "Id":image_id,"ParentId":"","RepoTags":[],"RepoDigests":[],
-        "Labels":{"osd.stage.scope":"staging-only",
-                  "osd.stage.image_source":"verified_container_manifest",
-                  "osd.stage.uses":str(used)},
-        # Unknown image timestamps and sizes are not invented from host
-        # metadata. Docker API compatibility clients tolerate zero values.
-        "Created":0,"Size":0,"SharedSize":0,"VirtualSize":0,
-        "Containers":used,
-    } for image_id,used in sorted(images.items())]
+    output=[]
+    for image_id,used in sorted(images.items()):
+        names=sorted(tags.get(image_id,()))
+        labels={"osd.stage.scope":"staging-only",
+                "osd.stage.image_source":"verified_container_manifest",
+                "osd.stage.uses":str(used)}
+        if names:
+            labels["osd.stage.catalog.alias_source"]="pinned_local_digest"
+        output.append({
+            "Id":image_id,"ParentId":"","RepoTags":names,"RepoDigests":[],
+            "Labels":labels,
+            # Unknown timestamps and sizes must never be fabricated.
+            "Created":0,"Size":0,"SharedSize":0,"VirtualSize":0,
+            "Containers":used,
+        })
+    return output
 
 
 def _resolve_stage_image(reference, images=None):
