@@ -299,3 +299,9 @@ a{color:#88dfd6}
 .stage-housekeeping td:last-child{white-space:nowrap}
 @media(max-width:700px){.stage-housekeeping .stage-housekeeping-pages{
   justify-content:space-between}}
+
+
+/* Non-sensitive staging failure receipt. No raw logs or stack traces. */
+.compiled-failure-receipt{font-size:12px;border-left:3px solid #526d84;
+  padding:9px 12px;margin:11px 0;background:#142437;
+  color:#a9c0d2;overflow-wrap:anywhere}

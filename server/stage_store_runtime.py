@@ -45,6 +45,7 @@ from stage_store_data import (
 
 ROOT=Path(STAGE)
 STATE=ROOT/"registry.json"
+LAST_STARTUP_FAILURE=ROOT/"last-stage-install-failure.json"
 PROJECT=re.compile(r"osd-compiled-[0-9a-f]{12}\Z")
 CID=re.compile(r"[0-9a-f]{64}\Z")
 OWNER=re.compile(r"[0-9a-f]{32}\Z")
@@ -986,12 +987,119 @@ def listing():
                     "complete":not restricted and not pending,
                     "pending_recovery":sorted(pending),
                     "unregistered_stage_directories":sorted(unregistered),
+                    "last_install_failure":_last_startup_failure(),
                     "scope":"isolated_compiled_appstore_runtime",
                     "application_data_rollback":any(a["application_data_rollback"] for a in apps),
                     "migration_allowed":False,"production_mutation_allowed":False}
     except PermissionError as err:
         # Never bypass root-protected staging recovery/credential files.
         raise AppError("compiled_stage_metadata_permission_denied",503) from err
+
+def _failed_stage_reason(text):
+    """Classify a small known set of startup faults; never persist raw logs."""
+    if not isinstance(text,str):
+        return "unclassified"
+    text=text.lower()[:10000]
+    if "getpwuid()" in text and "uid not found" in text:
+        return "nonroot_uid_not_in_image_passwd"
+    if "gethostbyname() argument 1" in text:
+        return "invalid_stage_zeroconf_bind_address"
+    if "permission denied" in text or "permissionerror" in text:
+        return "stage_runtime_permission_denied"
+    if "no space left on device" in text:
+        return "stage_runtime_disk_full"
+    if "address already in use" in text:
+        return "stage_runtime_port_conflict"
+    if "modulenotfounderror" in text or "no module named" in text:
+        return "stage_runtime_missing_dependency"
+    return "unclassified"
+
+
+def _startup_failure_snapshot(project,manifest,owner,error):
+    """Read only already-proven stage container IDs, storing no log data."""
+    code=(error.message if isinstance(error,AppError) else
+          "unexpected_stage_runtime_error")
+    if not isinstance(code,str) or not re.fullmatch(r"[a-z0-9_]{1,85}",code):
+        code="unexpected_stage_runtime_error"
+    service_specs=manifest.get("services",{}) if isinstance(manifest,dict) else {}
+    first=next(iter(service_specs.values()),{}) if isinstance(service_specs,dict) else {}
+    candidate=(first.get("labels") or {}).get("osd.m1.compiled.app") if isinstance(first,dict) else None
+    app=(candidate if isinstance(candidate,str) and len(candidate)<=150
+         else "unidentified_stage_app")
+    evidence={"schema":1,"project":project,
+              "app_id":app,
+              "checked_at_epoch":int(time.time()),
+              "failure_code":code,
+              "cleanup_status":"pending",
+              "services":[]}
+    try:
+        ids=_verify_partial(project,manifest,owner)
+    except (AppError,OSError,ValueError,TypeError,KeyError):
+        return evidence
+    for ident in ids[:MAX_SERVICES]:
+        if not isinstance(ident,str) or not CID.fullmatch(ident):
+            continue
+        try:
+            obj=json.loads(docker("inspect","--type","container",ident))[0]
+            cfg=obj.get("Config") or {}
+            labels=cfg.get("Labels") or {}
+            name=labels.get("com.docker.compose.service")
+            if (not isinstance(name,str) or name not in manifest["services"] or
+                obj.get("Id")!=ident or
+                labels.get("com.docker.compose.project")!=project):
+                continue
+            state=obj.get("State") or {}
+            status=state.get("Status")
+            status=status if status in (
+                "created","running","paused","restarting","exited","dead"
+            ) else "unknown"
+            exit_code=state.get("ExitCode")
+            if type(exit_code) is not int or not 0<=exit_code<=255:
+                exit_code=None
+            reason="unclassified"
+            if status in ("exited","dead"):
+                try:
+                    response=subprocess.run(
+                        ["docker","logs","--tail","24",ident],
+                        capture_output=True,text=True,check=False,timeout=5)
+                    # Only classify known error fingerprints in memory.
+                    # Neither stdout nor stderr is stored in the receipt.
+                    reason=_failed_stage_reason(
+                        (response.stdout+response.stderr)[:10000])
+                except (OSError,subprocess.TimeoutExpired):
+                    pass
+            evidence["services"].append({
+                "name":name,"status":status,"exit_code":exit_code,
+                "reason":reason})
+        except (AppError,OSError,ValueError,TypeError,KeyError,IndexError):
+            continue
+    return evidence
+
+
+def _record_startup_failure(snapshot,status):
+    if status not in ("rolled_back","recovery_required","owner_review"):
+        return
+    if (not isinstance(snapshot,dict) or
+        not PROJECT.fullmatch(str(snapshot.get("project",""))) or
+        len(snapshot.get("services",[]))>MAX_SERVICES):
+        return
+    record={**snapshot,"cleanup_status":status}
+    _atomic(_file(_root()/LAST_STARTUP_FAILURE.name),record)
+
+
+def _last_startup_failure():
+    record=_read(_file(_root()/LAST_STARTUP_FAILURE.name),None)
+    if record is None:
+        return None
+    if (not isinstance(record,dict) or set(record)!={
+         "schema","project","app_id","checked_at_epoch","failure_code",
+         "cleanup_status","services"} or record.get("schema")!=1
+        or not PROJECT.fullmatch(str(record.get("project","")))
+        or not isinstance(record.get("services"),list)
+        or len(record["services"])>MAX_SERVICES):
+        raise AppError("compiled_stage_failure_receipt_invalid",503)
+    return record
+
 
 def _recover_failed_install(project,manifest,owner,values):
     """Idempotent, provenance-checked cleanup for THIS staging project only.
@@ -1263,19 +1371,32 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
             except Exception as install_error:
+                # Diagnostic receipts must NEVER compromise the compensating
+                # rollback, including on unexpectedly incomplete manifests.
+                try:
+                    failure_snapshot=_startup_failure_snapshot(
+                        project,manifest,owner,install_error)
+                except Exception:
+                    failure_snapshot=None
                 # Qui has a deliberate delayed-readiness finalization path.
                 # Do not auto-remove a healthy-but-slow Qui install; retain
                 # its durable recovery journal and the existing owner flow.
                 if app_id==QUI_APP:
+                    try:_record_startup_failure(failure_snapshot,"owner_review")
+                    except (AppError,OSError):pass
                     raise
                 try:
                     _recover_failed_install(project,manifest,owner,values)
                     journal.unlink()
                 except Exception:
                     # Fail closed: durable journal remains for owner recovery.
+                    try:_record_startup_failure(failure_snapshot,"recovery_required")
+                    except (AppError,OSError):pass
                     raise AppError(
                         "compiled_stage_install_failed_recovery_required",503
                     ) from install_error
+                try:_record_startup_failure(failure_snapshot,"rolled_back")
+                except (AppError,OSError):pass
                 # Once all stage containers, networks and the pending
                 # journal are proven gone, reclaim ONLY the empty generated
                 # scaffold. Never erase retained volumes, unexpected files,

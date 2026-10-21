@@ -1965,6 +1965,37 @@ async function compiledRefresh(){
     compiledHousekeepingDirectories=orphaned.slice().sort();
     compiledHousekeepingInspections.clear(); // never reuse a stale eligibility decision
     compiledHousekeepingRender();
+    const failed=state.last_install_failure;
+    if(failed===null || failed===undefined){
+      $("compiled-last-failure").textContent=
+        "No recorded failed staging startup. Existing application status is unchanged.";
+    }else{
+      if(failed.schema!==1 ||
+         typeof failed.project!=="string" ||
+         !/^osd-compiled-[0-9a-f]{12}$/.test(failed.project) ||
+         typeof failed.app_id!=="string" || failed.app_id.length>150 ||
+         typeof failed.failure_code!=="string" ||
+         !/^[a-z0-9_]{1,85}$/.test(failed.failure_code) ||
+         !["rolled_back","recovery_required","owner_review"].includes(failed.cleanup_status) ||
+         !Array.isArray(failed.services) || failed.services.length>12 ||
+         !failed.services.every(x=>x && typeof x.name==="string" &&
+           /^[A-Za-z0-9][A-Za-z0-9_.-]{0,35}$/.test(x.name) &&
+           ["created","running","paused","restarting","exited","dead","unknown"].includes(x.status) &&
+           (x.exit_code===null ||
+              (Number.isInteger(x.exit_code) && x.exit_code>=0 && x.exit_code<=255)) &&
+           typeof x.reason==="string" && /^[a-z0-9_]{1,85}$/.test(x.reason)))
+        throw Error("Invalid bounded stage failure receipt");
+      const details=failed.services.map(x=>x.name+": "+x.status+
+        (x.exit_code===null?"":"/exit "+x.exit_code)+
+        (x.reason!=="unclassified"?" ("+x.reason.replaceAll("_"," ")+")":"")
+      ).join("; ");
+      $("compiled-last-failure").textContent=
+        "Last stage install failure — "+failed.app_id+" · "+
+        failed.failure_code.replaceAll("_"," ")+" · "+
+        failed.cleanup_status.replaceAll("_"," ")+
+        (details?" · "+details:"")+
+        ". This receipt contains status codes only, not application logs or secrets.";
+    }
     $("compiled-status").textContent=state.apps.length+" readable managed project(s); "+
       state.capacity.installed+"/"+state.capacity.limit+" staging slots; "+
       state.capacity.services_in_use+"/"+state.capacity.service_limit+
