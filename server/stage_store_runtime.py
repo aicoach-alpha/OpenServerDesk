@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import selectors
 import socket
 import stat
 import subprocess
@@ -1015,6 +1016,56 @@ def _failed_stage_reason(text):
     return "unclassified"
 
 
+def _bounded_stage_log_reason(ident):
+    """Read at most 8 KiB for classification; never retain raw log text.
+
+    This is a verified stage container's immutable ID. Even if an untrusted
+    application emits an arbitrarily long log line, our stderr/stdout reads
+    are capped and the subprocess is terminated after a short deadline.
+    """
+    if not isinstance(ident,str) or not CID.fullmatch(ident):
+        return "unclassified"
+    limit=8192
+    data=bytearray()
+    try:
+        proc=subprocess.Popen(
+            ["docker","logs","--tail","24",ident],
+            stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,bufsize=0)
+    except OSError:
+        return "unclassified"
+    try:
+        deadline=time.monotonic()+3.0
+        with selectors.DefaultSelector() as sel:
+            sel.register(proc.stdout,selectors.EVENT_READ)
+            sel.register(proc.stderr,selectors.EVENT_READ)
+            while sel.get_map() and len(data)<limit:
+                now=time.monotonic()
+                if now>=deadline:
+                    break
+                ready=sel.select(timeout=min(0.25,deadline-now))
+                for key,_ in ready:
+                    chunk=os.read(key.fd,min(1024,limit-len(data)))
+                    if not chunk:
+                        sel.unregister(key.fileobj)
+                    else:
+                        data.extend(chunk)
+                        if len(data)>=limit:
+                            break
+        return _failed_stage_reason(data.decode("utf-8","replace"))
+    except (OSError,ValueError):
+        return "unclassified"
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try: proc.wait(timeout=0.6)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=0.6)
+        proc.stdout.close()
+        proc.stderr.close()
+
+
 def _startup_failure_snapshot(project,manifest,owner,error):
     """Read only already-proven stage container IDs, storing no log data."""
     code=(error.message if isinstance(error,AppError) else
@@ -1036,6 +1087,7 @@ def _startup_failure_snapshot(project,manifest,owner,error):
         ids=_verify_partial(project,manifest,owner)
     except (AppError,OSError,ValueError,TypeError,KeyError):
         return evidence
+    log_reads=0
     for ident in ids[:MAX_SERVICES]:
         if not isinstance(ident,str) or not CID.fullmatch(ident):
             continue
@@ -1057,17 +1109,10 @@ def _startup_failure_snapshot(project,manifest,owner,error):
             if type(exit_code) is not int or not 0<=exit_code<=255:
                 exit_code=None
             reason="unclassified"
-            if status in ("exited","dead"):
-                try:
-                    response=subprocess.run(
-                        ["docker","logs","--tail","24",ident],
-                        capture_output=True,text=True,check=False,timeout=5)
-                    # Only classify known error fingerprints in memory.
-                    # Neither stdout nor stderr is stored in the receipt.
-                    reason=_failed_stage_reason(
-                        (response.stdout+response.stderr)[:10000])
-                except (OSError,subprocess.TimeoutExpired):
-                    pass
+            if status in ("exited","dead") and log_reads<3:
+                log_reads+=1
+                # Never buffer arbitrary output from an untrusted app.
+                reason=_bounded_stage_log_reason(ident)
             evidence["services"].append({
                 "name":name,"status":status,"exit_code":exit_code,
                 "reason":reason})

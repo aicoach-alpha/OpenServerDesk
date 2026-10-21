@@ -26,12 +26,10 @@ class FailureReceipt(unittest.TestCase):
                        "com.docker.compose.project":self.PROJECT,
                        "com.docker.compose.service":"app"}},
                    "State":{"Status":"exited","ExitCode":1}}
-        mock_process=SimpleNamespace(
-            stdout="Traceback KeyError: getpwuid(): uid not found: 1000 SECRET=private_value",
-            stderr="")
         with (patch.object(runtime,"_verify_partial",return_value=[self.CID]),
               patch.object(runtime,"docker",return_value=json.dumps([container])),
-              patch.object(runtime.subprocess,"run",return_value=mock_process)):
+              patch.object(runtime,"_bounded_stage_log_reason",
+                           return_value="nonroot_uid_not_in_image_passwd")):
             receipt=runtime._startup_failure_snapshot(
                 self.PROJECT,self.manifest(),"a"*32,
                 AppError("compiled_stage_application_exited_during_start",503))
@@ -54,7 +52,7 @@ class FailureReceipt(unittest.TestCase):
     def test_untrusted_container_provenance_yields_no_logs_or_ids(self):
         with (patch.object(runtime,"_verify_partial",
                            side_effect=AppError("foreign_container",403)),
-              patch.object(runtime.subprocess,"run") as log):
+              patch.object(runtime.subprocess,"Popen") as log):
             receipt=runtime._startup_failure_snapshot(
                 self.PROJECT,self.manifest(),"a"*32,
                 RuntimeError("password=secret"))
