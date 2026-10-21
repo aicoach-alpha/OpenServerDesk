@@ -28,6 +28,8 @@ from stage_host_socket import SOCKET_ROOT, SOCKET_PATH
 from stage_docker_api_stats import cached_snapshot as stage_stats_snapshot
 CID=re.compile(r"[a-f0-9]{64}\Z")
 CID_REF=re.compile(r"[a-f0-9]{12,64}\Z")
+IMAGE_DIGEST=re.compile(r"sha256:[a-f0-9]{64}\Z")
+IMAGE_REF=re.compile(r"(?:sha256:)?[a-f0-9]{64}\Z")
 PROJECT=re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
 PREFIX=re.compile(r"/v[0-9]{1,2}\.[0-9]{1,2}(?=/|$)")
 MAX_CONTAINERS=16
@@ -62,16 +64,23 @@ def _refresh_stage_containers():
         pending=_folder(project)/"pending.json"
         if pending.exists() or pending.is_symlink():
             raise AppError("stage_broker_operation_in_progress",503)
-        _,services=_current(project,entry)
+        manifest,services=_current(project,entry)
         for name,item in sorted(services.items()):
             ident=item.get("id")
-            if not isinstance(ident,str) or not CID.fullmatch(ident):
-                raise AppError("stage_broker_invalid_container",503)
+            spec=manifest.get("services",{}).get(name)
+            image_id=spec.get("image") if isinstance(spec,dict) else None
+            if (not isinstance(ident,str) or not CID.fullmatch(ident)
+                or not isinstance(image_id,str)
+                or not IMAGE_DIGEST.fullmatch(image_id)):
+                raise AppError("stage_broker_invalid_container_or_image",503)
+            # _current has already verified this immutable image against
+            # the exact stage-owned container Config.Image and labels.
+            # No host-wide Docker image list/inspect operation is performed.
             result.append({
                 "Id":ident,
                 "Names":["/osd-stage-"+project+"-"+name],
-                "Image":"openserverdesk/stage-only",
-                "ImageID":"redacted-stage-only",
+                "Image":image_id,
+                "ImageID":image_id,
                 "State":"running" if item["running"] else "exited",
                 "Status":"Stage app (isolated)",
                 "Labels":{"osd.stage.scope":"staging-only",
@@ -100,6 +109,48 @@ def stage_containers(*,fresh=False):
         _CACHE_ROWS=tuple(records)
         _CACHE_EXPIRES=time.monotonic()+STAGE_INVENTORY_TTL
         return list(records)
+
+
+def stage_images(rows=None):
+    """Synthesize *only* image IDs already proven by stage-owned containers.
+
+    No repo names/tags, Docker host image inventory, image configuration,
+    filesystem paths, labels from a real image, credentials or registry URLs.
+    """
+    rows=stage_containers() if rows is None else rows
+    images={}
+    for row in rows:
+        if not isinstance(row,dict) or (row.get("Labels") or {}).get(
+                "osd.stage.scope")!="staging-only":
+            raise AppError("stage_broker_unverified_image_source",403)
+        image_id=row.get("ImageID")
+        if (not isinstance(image_id,str) or not IMAGE_DIGEST.fullmatch(image_id)
+            or row.get("Image")!=image_id):
+            raise AppError("stage_broker_unverified_image_source",403)
+        images[image_id]=images.get(image_id,0)+1
+        if len(images)>MAX_CONTAINERS:
+            raise AppError("stage_broker_image_limit",503)
+    return [{
+        "Id":image_id,"ParentId":"","RepoTags":[],"RepoDigests":[],
+        "Labels":{"osd.stage.scope":"staging-only",
+                  "osd.stage.image_source":"verified_container_manifest",
+                  "osd.stage.uses":str(used)},
+        # Unknown image timestamps and sizes are not invented from host
+        # metadata. Docker API compatibility clients tolerate zero values.
+        "Created":0,"Size":0,"SharedSize":0,"VirtualSize":0,
+        "Containers":used,
+    } for image_id,used in sorted(images.items())]
+
+
+def _resolve_stage_image(reference, images=None):
+    if not isinstance(reference,str) or not IMAGE_REF.fullmatch(reference):
+        raise AppError("invalid_stage_image_reference",400)
+    image_id=reference if reference.startswith("sha256:") else "sha256:"+reference
+    available=stage_images() if images is None else images
+    for item in available:
+        if item["Id"]==image_id:
+            return item
+    raise AppError("stage_image_not_registered",404)
 
 
 def _resolve_stage_item(reference, rows=None):
@@ -341,9 +392,22 @@ def _normalized_path(path):
     raw=PREFIX.sub("",parsed.path,count=1)
     is_log=bool(re.fullmatch(r"/containers/[a-f0-9]{12,64}/logs",raw))
     is_stats=bool(re.fullmatch(r"/containers/[a-f0-9]{12,64}/stats",raw))
-    if (parsed.query and raw not in ("/containers/json","/events")
+    if (parsed.query and raw not in
+            ("/containers/json","/images/json","/events")
             and not is_log and not is_stats):
         return None
+    if raw=="/images/json" and parsed.query:
+        if len(parsed.query)>90:
+            return None
+        try:
+            params=parse_qsl(parsed.query,strict_parsing=True,
+                             max_num_fields=2)
+        except ValueError:
+            return None
+        if (len({k for k,_ in params})!=len(params)
+            or any(k not in ("all","digests") or
+                   v not in ("0","1","true","false") for k,v in params)):
+            return None
     if raw=="/containers/json" and parsed.query:
         # no hostile filters or arbitrary user-directed Docker operations
         if not re.fullmatch(r"(?:all=(?:0|1|true|false))?",parsed.query):
@@ -498,13 +562,35 @@ class Handler(BaseHTTPRequestHandler):
             return self._respond(200,{"Name":"osd-stage-only",
                 "Containers":len(rows),
                 "ContainersRunning":sum(r["State"]=="running" for r in rows),
-                "Images":0,"ID":"no-host-runtime",
+                "Images":len(stage_images(rows)),"ID":"no-host-runtime",
                 "Driver":"stage-only","SecurityOptions":["stage-only-read-only"]})
         if path=="/containers/json":
             try:
                 return self._respond(200,stage_containers())
             except (AppError,OSError,ValueError):
                 return self._respond(503,{"message":"stage_inventory_unavailable"})
+        if path=="/images/json":
+            try:
+                return self._respond(200,stage_images())
+            except (AppError,OSError,ValueError):
+                return self._respond(503,{"message":"stage_image_inventory_unavailable"})
+        if path and re.fullmatch(
+                r"/images/(?:sha256:)?[a-f0-9]{64}/json",path):
+            reference=path[len("/images/"):-len("/json")]
+            try:
+                item=_resolve_stage_image(reference)
+                return self._respond(200,{
+                    "Id":item["Id"],"RepoTags":item["RepoTags"],
+                    "RepoDigests":item["RepoDigests"],"Parent":"",
+                    "Labels":item["Labels"],"Size":item["Size"],
+                    "VirtualSize":item["VirtualSize"],
+                    "Config":{"Labels":item["Labels"]},
+                    "Os":"linux","Architecture":"amd64",
+                })
+            except AppError as err:
+                return self._respond(err.status,{"message":err.message})
+            except (OSError,ValueError):
+                return self._respond(503,{"message":"stage_image_inventory_unavailable"})
         if path and re.fullmatch(r"/containers/[a-f0-9]{12,64}/stats",path):
             reference=path[len("/containers/"):-len("/stats")]
             try:
@@ -532,6 +618,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._respond(503,{"message":"stage_inventory_unavailable"})
             return self._respond(200,{
                 "Id":match["Id"],"Name":match["Names"][0],
+                "Image":match["ImageID"],
                 "Config":{"Image":match["Image"],"Labels":match["Labels"]},
                 "State":{"Running":match["State"]=="running",
                          "Status":match["State"]},
