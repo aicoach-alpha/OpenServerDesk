@@ -36,7 +36,7 @@ class VerifiedCatalogAlias(unittest.TestCase):
     def test_same_image_shared_alias_only_from_fixed_catalog(self):
         alias="fmartinou/whats-up-docker:6.6.1"
         records=[
-          {"Id":str(i)*64,"Image":self.DIGEST,"ImageID":self.DIGEST,
+          {"Id":str(i)*64,"Image":alias,"ImageID":self.DIGEST,
            "Labels":{"osd.stage.scope":"staging-only",
                      "osd.stage.catalog.image_tag":alias}}
           for i in ("c","d")
@@ -55,6 +55,7 @@ class VerifiedCatalogAlias(unittest.TestCase):
         with self.assertRaises(AppError):
             broker.stage_images(invalid)
         records[1]["Labels"]={"osd.stage.scope":"staging-only"}
+        records[1]["Image"]=self.DIGEST
         self.assertEqual(broker.stage_images(records)[0]["RepoTags"],[alias])
 
     def test_current_installed_stage_image_alias_has_exact_cached_digest(self):

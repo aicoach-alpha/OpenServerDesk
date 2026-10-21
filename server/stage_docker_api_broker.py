@@ -122,7 +122,7 @@ def _refresh_stage_containers():
             result.append({
                 "Id":ident,
                 "Names":["/osd-stage-"+project+"-"+name],
-                "Image":image_id,
+                "Image":alias if alias is not None else image_id,
                 "ImageID":image_id,
                 "State":"running" if item["running"] else "exited",
                 "Status":"Stage app (isolated)",
@@ -153,6 +153,31 @@ def stage_containers(*,fresh=False):
         return list(records)
 
 
+def _stage_display_image(row):
+    """Validate a display image tag without compromising immutable ImageID.
+
+    Production inputs only originate in _refresh_stage_containers, which
+    resolves fixed catalog references to the verified local image ID.
+    """
+    if not isinstance(row,dict):
+        raise AppError("stage_broker_unverified_image_source",403)
+    labels=row.get("Labels") or {}
+    image_id=row.get("ImageID")
+    if (not isinstance(labels,dict)
+        or labels.get("osd.stage.scope")!="staging-only"
+        or not isinstance(image_id,str)
+        or not IMAGE_DIGEST.fullmatch(image_id)):
+        raise AppError("stage_broker_unverified_image_source",403)
+    alias=labels.get("osd.stage.catalog.image_tag")
+    if alias is not None and (not isinstance(alias,str)
+                              or alias not in PINNED_CATALOG_ALIASES
+                              or not CATALOG_TAG.fullmatch(alias)):
+        raise AppError("stage_broker_invalid_catalog_alias",403)
+    if row.get("Image")!=(alias if alias is not None else image_id):
+        raise AppError("stage_broker_image_identity_mismatch",403)
+    return alias if alias is not None else image_id
+
+
 def stage_images(rows=None):
     """Synthesize *only* image IDs already proven by stage-owned containers.
 
@@ -164,22 +189,13 @@ def stage_images(rows=None):
     images={}
     tags={}
     for row in rows:
-        if not isinstance(row,dict) or (row.get("Labels") or {}).get(
-                "osd.stage.scope")!="staging-only":
-            raise AppError("stage_broker_unverified_image_source",403)
-        image_id=row.get("ImageID")
-        if (not isinstance(image_id,str) or not IMAGE_DIGEST.fullmatch(image_id)
-            or row.get("Image")!=image_id):
-            raise AppError("stage_broker_unverified_image_source",403)
+        display=_stage_display_image(row)
+        image_id=row["ImageID"]
         images[image_id]=images.get(image_id,0)+1
-        alias=row["Labels"].get("osd.stage.catalog.image_tag")
-        if alias is not None:
-            if (not isinstance(alias,str) or not CATALOG_TAG.fullmatch(alias)
-                or alias not in PINNED_CATALOG_ALIASES):
-                raise AppError("stage_broker_invalid_catalog_alias",403)
-            # The alias was resolved by _refresh_stage_containers against a
-            # fixed audited catalog source and the verified container digest.
-            tags.setdefault(image_id,set()).add(alias)
+        if display!=image_id:
+            # The source catalog tag was proven locally against the immutable
+            # container image ID in _refresh_stage_containers.
+            tags.setdefault(image_id,set()).add(display)
             if len(tags[image_id])>MAX_CONTAINERS:
                 raise AppError("stage_broker_image_tag_limit",503)
         if len(images)>MAX_CONTAINERS:
@@ -417,19 +433,17 @@ def _event_request(query):
 
 
 def _container_event(row,action):
-    # The event emitter must use exactly the same stage-verified digest as
-    # /containers/json and /images/json. Never invent a host repository tag.
-    image_id=row.get("ImageID") if isinstance(row,dict) else None
-    if (not isinstance(image_id,str) or not IMAGE_DIGEST.fullmatch(image_id)
-        or row.get("Image")!=image_id
-        or (row.get("Labels") or {}).get("osd.stage.scope")!="staging-only"):
-        raise AppError("stage_broker_unverified_event_image",403)
+    # Docker event display identity is a catalog tag only when proven.
+    # The immutable image digest remains a separate event attribute.
+    display=_stage_display_image(row)
+    immutable=row["ImageID"]
     now=time.time()
     return {"Type":"container","Action":action,"Actor":{
         "ID":row["Id"],"Attributes":{
-            "name":row["Names"][0],"image":image_id}},
+            "name":row["Names"][0],"image":display,
+            "osd.stage.immutable_image":immutable}},
         "scope":"local","time":int(now),"timeNano":int(now*1000000000),
-        "id":row["Id"],"status":action,"from":image_id}
+        "id":row["Id"],"status":action,"from":display}
 
 
 def _stats_request(query):
