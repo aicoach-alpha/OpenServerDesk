@@ -1,0 +1,25 @@
+/* OpenServerDesk staging UI hygiene: OPTIONAL CasaOS custom.css override.
+ * Presentation only. The underlying Docker services and staging data stay
+ * intact and remain visible in Docker/OSD operator inventories.
+ * Do not install into root-owned CasaOS production UI without approval.
+ * Reversible by removing this block from /css/custom.css.
+ */
+
+/* Internal engineering resources are not user-installed applications. */
+.app-list.contextmenu-canvas > .handle[id^="app-osd-compiled-"],
+.app-list.contextmenu-canvas > .handle[id^="app-osd-m1-"],
+.app-list.contextmenu-canvas > .handle[id^="app-omnirush-box-"] {
+  display: none !important;
+}
+
+/* Hide the Legacy heading only when EVERY legacy tile belongs to one of
+ * the hidden development namespaces. Preserve the section whenever at
+ * least one unrelated legacy app exists. Firefox/Chromium support :has().
+ */
+.title-bar:has(#appTitle2):not(
+  :has(+ .app-list > .handle:not([id^="app-osd-compiled-"]):not(
+                                  [id^="app-osd-m1-"]):not(
+                                  [id^="app-omnirush-box-"]))
+) {
+  display: none !important;
+}
