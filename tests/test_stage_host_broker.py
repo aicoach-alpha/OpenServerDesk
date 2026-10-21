@@ -12,11 +12,11 @@ import stage_host_broker as broker
 class HostBrokerContract(unittest.TestCase):
     def test_catalog_exactly_classified_default_denied(self):
         data=broker.contracts()
-        self.assertEqual(data["count"],51)
+        self.assertEqual(data["count"],50)
         self.assertFalse(data["host_privileged_access"])
         self.assertFalse(data["production_mutation_allowed"])
         self.assertFalse(data["runtime_compatibility_proven"])
-        self.assertEqual(len(data["contracts"]),51)
+        self.assertEqual(len(data["contracts"]),50)
         for app in data["contracts"]:
             self.assertFalse(app["host_privileged_access"])
             self.assertFalse(app["stage_docker_socket_exposed"])

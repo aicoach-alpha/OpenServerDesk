@@ -22,10 +22,16 @@ GLANCES_SERVICE="big-bear-glances"
 GLANCES_IMAGE=("nicolargo/glances:4.5.3.2-full@sha256:"
     "2d16ab0fdba4b9f61b327f78dbb8a7e7931f4967be8e1db4d37326e4680e8433")
 GLANCES_ENV={"GLANCES_OPT":"-w","USER":"stageglances","LOGNAME":"stageglances"}
+WUD_ID="github.com:com.bigbeartechworld.whats-up-docker"
+WUD_SERVICE="app"
+WUD_IMAGE=("fmartinou/whats-up-docker:6.6.1@sha256:"
+    "7cbdfa9bb56de7ad820e3efea16205c3cf09e5f06192436530c5c798964607f0")
+
 APPROVED_PILOTS={
     PILOT_ID:(PILOT_SERVICE,PILOT_IMAGE),
     DOCKPEEK_ID:(DOCKPEEK_SERVICE,DOCKPEEK_IMAGE),
     GLANCES_ID:(GLANCES_SERVICE,GLANCES_IMAGE),
+    WUD_ID:(WUD_SERVICE,WUD_IMAGE),
 }
 LABEL="osd.m1.compiled.broker"
 LABEL_VALUE="stage-docker-readonly-v1"
@@ -65,6 +71,11 @@ def eligible(app_id,doc):
             or set(cfg["environment"])!={"GLANCES_OPT=-w","TZ=UTC"}
             or cfg.get("ports")!=["61208:61208"]
             or cfg.get("pid")!="host"):
+        return False
+    if app_id==WUD_ID and (
+            cfg.get("environment") not in (None,{})
+            or cfg.get("ports")!=["3000:3000"]
+            or cfg.get("depends_on")):
         return False
     # Refuse any privilege, host namespaces, additional device mounts or
     # custom entrypoints; these pilots need just the facade read endpoint.
