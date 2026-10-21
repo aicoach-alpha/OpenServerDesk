@@ -1574,8 +1574,22 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
             values.pop(project)
             _atomic(STATE,values)
             journal.unlink()
+            # Complete uninstall first. Opportunistically reclaim only
+            # verified empty generated staging directories. Any backed-up or
+            # retained application data, unknown file, or foreign resource
+            # must remain intact. Qui's special owner-managed data is never
+            # eligible for this automatic post-uninstall path.
+            reclaimed=False
+            if entry["app_id"]!=QUI_APP:
+                try:
+                    _cleanup_failed_preparation(project,folder,values)
+                    reclaimed=True
+                except (AppError,OSError):
+                    pass
             return {"operation":"uninstalled","project":project,
-                    "stage_data_retained":True,"production_mutation_allowed":False}
+                    "stage_data_retained":True,
+                    "empty_scaffold_reclaimed":reclaimed,
+                    "production_mutation_allowed":False}
         if action in ("start","stop","restart"):
             original={name for name,item in services.items() if item["running"]}
             if action in ("stop","restart"):
