@@ -93,8 +93,8 @@ class GlancesCuratedStage(unittest.TestCase):
         self.assertIn("stage_container_metrics_only",
                       selected["feature_gaps"])
         self.assertEqual(matrix["install_mode_counts"],{
-            "isolated_stage_sandbox":676,
-            "special_host_integration":50,
+            "isolated_stage_sandbox":677,
+            "special_host_integration":49,
             "unsupported_compose_metadata":0,
         })
 

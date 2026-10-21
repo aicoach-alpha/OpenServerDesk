@@ -23,7 +23,8 @@ from stage_store_compiler import compile_stage, prepare_images, STAGE, MAX_SERVI
 from stage_store_versions import cached_versions, current_tags, target_image, check_runtime_contract
 from stage_host_socket import (
     approved_app as broker_app_approved,
-    DOCKPEEK_ID, GLANCES_ID, allow_glances_environment,
+    DOCKPEEK_ID, GLANCES_ID, HOMEPAGE_ID, allow_glances_environment,
+    allow_homepage_environment,
     LABEL as BROKER_LABEL,
     LABEL_VALUE as BROKER_LABEL_VALUE,
     is_facade_mount,
@@ -444,7 +445,8 @@ def _validate(project,manifest,owner,*,read_only=False):
                 (qui_readonly_allow(project,services) if read_only
                  else qui_allow(project,services))
                 or dockpeek_env_allow(project,services)
-                or allow_glances_environment(project,services)))
+                or allow_glances_environment(project,services)
+                or allow_homepage_environment(project,services)))
             or cfg.get("env_file")
             or cfg.get("devices") or cfg.get("build")):
             raise AppError("unsafe_compiled_service_settings",403)
@@ -1412,7 +1414,7 @@ def operation(action,app_id=None,project=None,checkpoint=None,image_tag=None):
                 _up(project)
                 _confirm_ready(project,manifest,owner,
                                grace_seconds=(25 if app_id==QUI_APP else
-                                              30 if app_id==GLANCES_ID else 11))
+                                              30 if app_id in (GLANCES_ID,HOMEPAGE_ID) else 11))
                 values[project]={"app_id":app_id,"owner":owner,"revision":1}
                 _atomic(STATE,values)
             except Exception as install_error:

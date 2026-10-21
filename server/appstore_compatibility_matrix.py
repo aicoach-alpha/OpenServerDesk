@@ -11,7 +11,7 @@ from casaos_appstore import _index, STORE_ROOT, SAFE_LOADER, MAX_COMPOSE_BYTES
 from stage_store_compiler import analyze
 from stage_store_general import _read_only_targets
 from stage_host_socket import (
-    eligible as host_socket_eligible,GLANCES_ID,WUD_ID,
+    eligible as host_socket_eligible,GLANCES_ID,WUD_ID,HOMEPAGE_ID,
 )
 from stage_apps import AppError
 
@@ -133,6 +133,10 @@ def _evaluate(item, evidence):
                 gaps.extend(("external_registry_update_checks_unavailable",
                              "no_production_container_inventory",
                              "stage_only_readonly_container_monitoring"))
+            if item["id"]==HOMEPAGE_ID:
+                gaps.extend(("original_dashboard_config_not_imported",
+                             "original_host_docker_inventory_unavailable",
+                             "empty_stage_owned_config_only"))
         if any(spec.get("volumes") for spec in services.values()):
             gaps.append("original_volume_sources")
         if any(_read_only_targets(spec) for spec in services.values()):

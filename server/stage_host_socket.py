@@ -26,12 +26,20 @@ WUD_ID="github.com:com.bigbeartechworld.whats-up-docker"
 WUD_SERVICE="app"
 WUD_IMAGE=("fmartinou/whats-up-docker:6.6.1@sha256:"
     "7cbdfa9bb56de7ad820e3efea16205c3cf09e5f06192436530c5c798964607f0")
+HOMEPAGE_ID="github.com:com.bigbeartechworld.homepage"
+HOMEPAGE_SERVICE="app"
+HOMEPAGE_IMAGE=("ghcr.io/gethomepage/homepage:v2.4.0@sha256:"
+    "643bd0be730d40f69d58028a55d1a896739333e8815786df42bc97f109ecbe61")
+HOMEPAGE_CONFIG_SOURCE="/DATA/AppData/$AppID/config:/app/config"
+HOMEPAGE_ENV={"HOMEPAGE_ALLOWED_HOSTS":"localhost:3000"}
+
 
 APPROVED_PILOTS={
     PILOT_ID:(PILOT_SERVICE,PILOT_IMAGE),
     DOCKPEEK_ID:(DOCKPEEK_SERVICE,DOCKPEEK_IMAGE),
     GLANCES_ID:(GLANCES_SERVICE,GLANCES_IMAGE),
     WUD_ID:(WUD_SERVICE,WUD_IMAGE),
+    HOMEPAGE_ID:(HOMEPAGE_SERVICE,HOMEPAGE_IMAGE),
 }
 LABEL="osd.m1.compiled.broker"
 LABEL_VALUE="stage-docker-readonly-v1"
@@ -77,6 +85,14 @@ def eligible(app_id,doc):
             or cfg.get("ports")!=["3000:3000"]
             or cfg.get("depends_on")):
         return False
+    if app_id==HOMEPAGE_ID and (
+            cfg.get("environment") not in (None,{})
+            or cfg.get("ports")!=["3000:3000"]
+            or cfg.get("depends_on") or cfg.get("healthcheck")
+            or cfg.get("volumes")!=[
+                HOMEPAGE_CONFIG_SOURCE,
+                "/var/run/docker.sock:/var/run/docker.sock"]):
+        return False
     # Refuse any privilege, host namespaces, additional device mounts or
     # custom entrypoints; these pilots need just the facade read endpoint.
     if any(cfg.get(field) for field in (
@@ -88,6 +104,8 @@ def eligible(app_id,doc):
     if cfg.get("pid") and app_id!=GLANCES_ID:
         return False
     vols=cfg.get("volumes")
+    if app_id==HOMEPAGE_ID:
+        return True  # Exact volume identities verified above.
     return isinstance(vols,list) and len(vols)==1 and _socket_item(vols[0])
 
 
@@ -118,9 +136,30 @@ def allow_glances_environment(project,services):
     )
 
 
+def homepage_environment():
+    # The authenticated reverse proxy sends Host: localhost:3000 to the
+    # isolated image. No wildcard, production domain or original source env.
+    return dict(HOMEPAGE_ENV)
+
+
+def allow_homepage_environment(project,services):
+    if not isinstance(services,dict) or set(services)!={HOMEPAGE_SERVICE}:
+        return False
+    cfg=services[HOMEPAGE_SERVICE]
+    return (
+        cfg.get("labels",{}).get("osd.m1.compiled.app")==HOMEPAGE_ID
+        and cfg.get("environment")==HOMEPAGE_ENV
+        and cfg.get("healthcheck") is None
+    )
+
+
 def adapted_service(app_id,doc,name,service):
     if not eligible(app_id,doc) or name!=approved_service(app_id):
         raise AppError("host_socket_pilot_not_approved",403)
+    if app_id==HOMEPAGE_ID:
+        # The original /DATA/... source is NEVER mounted or imported:
+        # the compiler replaces it with a fresh stage-owned config volume.
+        return {**service,"volumes":[HOMEPAGE_CONFIG_SOURCE]}
     return {**service,"volumes":[]}
 
 

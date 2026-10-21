@@ -32,7 +32,7 @@ _ALLOWED_METHODS={"GET","HEAD","POST","PUT","PATCH","DELETE"}
 _ALLOWED_TYPES=("text/","application/json","application/javascript",
                 "application/manifest+json","image/","font/","application/font-",
                 "application/octet-stream")
-_REWRITE_PREFIXES=("assets/","static/","api/","api","export/","logout",
+_REWRITE_PREFIXES=("assets/","static/","_next/","api/","api","export/","logout",
                    "manifest.json","registerSW.js","sw.js",
                    "favicon.ico","socket.io/")
 _SEGMENT=re.compile(r"[A-Za-z0-9._~!$&'()+,;=:@%/-]*\Z")
@@ -174,9 +174,10 @@ def rewrite(body,content_type,project):
             for prefix in _REWRITE_PREFIXES:
                 value=value.replace(quote+"/"+prefix,quote+base+prefix)
     if typ=="text/css":
-        value=(value.replace("url(/assets/","url("+base+"assets/")
-               .replace('url("/assets/','url("'+base+"assets/")
-               .replace("url('/assets/","url('"+base+"assets/"))
+        for source in ("assets/","_next/"):
+            value=(value.replace("url(/"+source,"url("+base+source)
+                   .replace('url("/'+source,'url("'+base+source)
+                   .replace("url('/"+source,"url('"+base+source))
     return value.encode("utf-8")
 
 
