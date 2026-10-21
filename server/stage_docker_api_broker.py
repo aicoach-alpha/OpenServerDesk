@@ -357,12 +357,19 @@ def _event_request(query):
 
 
 def _container_event(row,action):
+    # The event emitter must use exactly the same stage-verified digest as
+    # /containers/json and /images/json. Never invent a host repository tag.
+    image_id=row.get("ImageID") if isinstance(row,dict) else None
+    if (not isinstance(image_id,str) or not IMAGE_DIGEST.fullmatch(image_id)
+        or row.get("Image")!=image_id
+        or (row.get("Labels") or {}).get("osd.stage.scope")!="staging-only"):
+        raise AppError("stage_broker_unverified_event_image",403)
     now=time.time()
     return {"Type":"container","Action":action,"Actor":{
         "ID":row["Id"],"Attributes":{
-            "name":row["Names"][0],"image":"openserverdesk/stage-only"}},
+            "name":row["Names"][0],"image":image_id}},
         "scope":"local","time":int(now),"timeNano":int(now*1000000000),
-        "id":row["Id"],"status":action,"from":"openserverdesk/stage-only"}
+        "id":row["Id"],"status":action,"from":image_id}
 
 
 def _stats_request(query):

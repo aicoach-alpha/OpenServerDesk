@@ -32,7 +32,8 @@ class DockerStageEventsStats(unittest.TestCase):
     def fixture(self):
         return [{"Id":self.A,"Names":["/osd-stage-app"],
                  "Labels":{"osd.stage.scope":"staging-only"},
-                 "Image":"openserverdesk/stage-only",
+                 "Image":"sha256:"+"a"*64,
+                 "ImageID":"sha256:"+"a"*64,
                  "State":"running"}]
 
     def test_prefix_can_only_resolve_verified_stage_id(self):
@@ -44,6 +45,15 @@ class DockerStageEventsStats(unittest.TestCase):
             facade._resolve_stage_item("a"*11,data)
         with self.assertRaises(AppError):
             facade._resolve_stage_item("a"*12,data+[dict(data[0],Id="a"*12+"c"*52)])
+
+    def test_stage_lifecycle_event_image_matches_immutable_inventory(self):
+        row=self.fixture()[0]
+        event=facade._container_event(row,"start")
+        self.assertEqual(event["Actor"]["Attributes"]["image"],row["ImageID"])
+        self.assertEqual(event["from"],row["ImageID"])
+        changed=dict(row,ImageID="openserverdesk/stage-only")
+        with self.assertRaises(AppError):
+            facade._container_event(changed,"start")
 
     def test_event_and_stats_options_are_readonly_bounded(self):
         self.assertEqual(facade._event_request(
