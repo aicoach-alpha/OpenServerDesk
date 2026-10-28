@@ -25,7 +25,7 @@ MAX_TOTAL_MOUNTS=64
 NAME=re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,35}\Z")
 IMAGE=re.compile(r"[A-Za-z0-9][A-Za-z0-9./_:-]{1,240}(?:@sha256:[0-9a-f]{64})?\Z")
 DIGEST=re.compile(r"sha256:[0-9a-f]{64}\Z")
-STAGE="/opt/openserverdesk-dev/runtime-stage/stage-app-manager/store-compiled"
+STAGE="/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/store-compiled"
 # The first egress-capable pilot is intentionally exact-ID and exact-tag
 # restricted, not a generic "enable the internet for the entire store" switch.
 EGRESS_PILOT_ID="default:MySpeed"

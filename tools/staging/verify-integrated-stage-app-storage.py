@@ -9,7 +9,7 @@ from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 
 BASE='http://127.0.0.1:18690'
-TOKEN=Path('/opt/openserverdesk-dev/runtime-stage/stage-app-manager/token').read_text().strip()
+TOKEN=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/token').read_text().strip()
 
 
 def ids():

@@ -15,10 +15,10 @@ from pathlib import Path
 
 BASE="http://127.0.0.1:18690"
 RELEASE="0.6.26"
-PACKAGE=Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.26_amd64.deb")
-RECEIPT=Path("/opt/openserverdesk-dev/releases/upgrade-0.6.26-receipt.json")
-DOCUMENT=Path("/home/andre/openserverdesk/docs/M1_LIVE_MULTISERVICE_V0625_20261016.md")
-OUTPUT=Path("/opt/openserverdesk-dev/runtime-stage/M1_STAGE_RUNTIME_ACCEPTANCE_V0626.json")
+PACKAGE=Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.26_amd64.deb")
+RECEIPT=Path("/home/andre/projects/openserverdesk/operations/releases/upgrade-0.6.26-receipt.json")
+DOCUMENT=Path("/home/andre/projects/openserverdesk/main/docs/M1_LIVE_MULTISERVICE_V0625_20261016.md")
+OUTPUT=Path("/home/andre/projects/openserverdesk/operations/runtime-stage/M1_STAGE_RUNTIME_ACCEPTANCE_V0626.json")
 
 def get(path):
     with urllib.request.urlopen(BASE+path,timeout=7) as result:
@@ -57,7 +57,7 @@ def main():
     assert release["artifact_sha256"]==actual_sha
     assert release["after"]["package_version"]==RELEASE and release["after"]["production_modified"] is False
     signed=json.loads(execute([
-        "python3","/home/andre/openserverdesk/tools/release/stage_artifact_signing_0626.py",
+        "python3","/home/andre/projects/openserverdesk/main/tools/release/stage_artifact_signing_0626.py",
         "verify"
     ]))
     assert signed["package_sha256"]==actual_sha

@@ -28,7 +28,7 @@ class SocketActivation(unittest.TestCase):
         service=(root/"openserverdesk-stage-docker-broker.service").read_text()
         self.assertIn("SocketMode=0600",socket_unit)
         self.assertIn("RemoveOnStop=no",socket_unit)
-        self.assertIn("stage-app-manager/host-broker/",socket_unit)
+        self.assertIn("ListenStream=/home/andre/projects/openserverdesk/alpha/run/dozzle.sock",socket_unit)
         self.assertIn("Requires=openserverdesk-stage-docker-broker.socket",service)
         self.assertIn("NoNewPrivileges=yes",service)
 

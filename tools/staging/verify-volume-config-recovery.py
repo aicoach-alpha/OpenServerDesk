@@ -8,9 +8,9 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path("/opt/openserverdesk-dev/runtime-stage")
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
-sys.path.insert(0, "/home/andre/openserverdesk/tools/migration")
+ROOT = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
+PKG = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
+sys.path.insert(0, "/home/andre/projects/openserverdesk/main/tools/migration")
 from volume_fixture import snapshot, restore
 
 

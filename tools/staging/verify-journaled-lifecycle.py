@@ -8,8 +8,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path("/opt/openserverdesk-dev")
-sys.path.insert(0, "/home/andre/openserverdesk/tools/migration")
+ROOT = Path("/home/andre/projects/openserverdesk/operations")
+sys.path.insert(0, "/home/andre/projects/openserverdesk/main/tools/migration")
 from journaled_pair import digest, replace_pair, recover
 
 

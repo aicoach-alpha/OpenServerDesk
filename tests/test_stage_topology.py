@@ -16,7 +16,7 @@ class TopologyTests(unittest.TestCase):
         mapping=validate(structure)
         self.assertEqual(mapping["api"],["db"])
         rendered=_compose("osd-m1-topology-"+"f"*12,"a"*32,mapping,
-                          Path("/opt/openserverdesk-dev/runtime-stage/stage-app-manager/topology-projects/x/data"))
+                          Path("/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/topology-projects/x/data"))
         self.assertIn('"network_mode": "none"',rendered)
         self.assertNotIn("/mnt/data",rendered)
         self.assertNotIn("ports",rendered)

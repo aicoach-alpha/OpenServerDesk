@@ -10,29 +10,29 @@ import subprocess
 import sys
 from pathlib import Path
 
-STAGE_ROOT=Path("/opt/openserverdesk-dev")
+STAGE_ROOT=Path("/home/andre/projects/openserverdesk/operations")
 NAMES=("osd-m1-user","osd-m1-bus","osd-m1-gateway")
 EXPECTED_MOUNTS={
     "osd-m1-user":{
-        "/opt/openserverdesk-dev/runtime-stage/user-conf",
-        "/opt/openserverdesk-dev/runtime-stage/run",
-        "/opt/openserverdesk-dev/runtime-stage/user-db",
-        "/opt/openserverdesk-dev/runtime-stage/log",
-        "/opt/openserverdesk-dev/bin/CasaOS-UserService",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/user-conf",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/run",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/user-db",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/log",
+        "/home/andre/projects/openserverdesk/operations/bin/CasaOS-UserService",
     },
     "osd-m1-bus":{
-        "/opt/openserverdesk-dev/runtime-stage/bus-conf",
-        "/opt/openserverdesk-dev/runtime-stage/run",
-        "/opt/openserverdesk-dev/runtime-stage/bus-data",
-        "/opt/openserverdesk-dev/runtime-stage/log",
-        "/opt/openserverdesk-dev/bin/CasaOS-MessageBus",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/bus-conf",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/run",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/bus-data",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/log",
+        "/home/andre/projects/openserverdesk/operations/bin/CasaOS-MessageBus",
     },
     "osd-m1-gateway":{
-        "/opt/openserverdesk-dev/runtime-stage/conf",
-        "/opt/openserverdesk-dev/runtime-stage/run",
-        "/opt/openserverdesk-dev/runtime-stage/log",
-        "/opt/openserverdesk-dev/bin/CasaOS-Gateway",
-        "/opt/openserverdesk-dev/runtime-stage/www",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/conf",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/run",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/log",
+        "/home/andre/projects/openserverdesk/operations/bin/CasaOS-Gateway",
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/www",
     },
 }
 

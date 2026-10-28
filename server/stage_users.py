@@ -18,10 +18,10 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-ROOT = Path("/opt/openserverdesk-dev/runtime-stage/stage-users")
+ROOT = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/stage-users")
 DATABASE = ROOT / "identities.json"
 LOCK = ROOT / ".identities.lock"
-ACTIVATION = Path("/opt/openserverdesk-dev/runtime-stage/.enable-stage-multiuser")
+ACTIVATION = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/.enable-stage-multiuser")
 ACTIVATION_STRING = "OSD_STAGE_MULTIUSER_V1\n"
 USER = re.compile(r"[a-z][a-z0-9_-]{2,30}\Z")
 TOKEN = re.compile(r"[0-9a-f]{64}\Z")

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install read-only M1 progress cron without affecting unrelated cron jobs.
 set -Eeuo pipefail
-source_root=/home/andre/openserverdesk
-report_dir=/opt/openserverdesk-dev/runtime-stage/progress
+source_root=/home/andre/projects/openserverdesk/main
+report_dir=/home/andre/projects/openserverdesk/operations/runtime-stage/progress
 cron_file=/etc/cron.d/openserverdesk-m1-progress
 if [[ $EUID != 0 ]]; then echo "Needs operator-approved sudo" >&2; exit 1; fi
 [[ -f "$source_root/tools/status/m1_progress_report.py" ]] || exit 2
@@ -18,7 +18,7 @@ cat > "$temp" <<'CR'
 SHELL=/bin/sh
 PATH=/usr/local/bin:/usr/bin:/bin
 MAILTO=""
-*/15 * * * * andre /usr/bin/flock -n /opt/openserverdesk-dev/runtime-stage/progress/.job.lock /usr/bin/python3 -B /home/andre/openserverdesk/tools/status/m1_progress_report.py >>/opt/openserverdesk-dev/runtime-stage/progress/cron.log 2>&1
+*/15 * * * * andre /usr/bin/flock -n /home/andre/projects/openserverdesk/operations/runtime-stage/progress/.job.lock /usr/bin/python3 -B /home/andre/projects/openserverdesk/main/tools/status/m1_progress_report.py >>/home/andre/projects/openserverdesk/operations/runtime-stage/progress/cron.log 2>&1
 CR
 if [[ -e "$cron_file" ]]; then
   cmp -s "$temp" "$cron_file" || {

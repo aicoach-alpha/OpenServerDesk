@@ -43,7 +43,7 @@ if _PACKAGED_VERSION.is_file() and not _PACKAGED_VERSION.is_symlink():
     candidate = _PACKAGED_VERSION.read_text().strip()
     if re.fullmatch(r"(?:0\.6\.[0-9]+|0\.7\.0-alpha\.[0-9]+)", candidate):
         VERSION = candidate
-SUMMARY = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
+SUMMARY = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/M1_PUBLIC_APP_DATA_SUMMARY.json")
 ALLOWED_SUMMARY_FIELDS = (
     "checked_at_utc", "container_count", "running_container_count",
     "compose_project_count", "unique_bind_source_count",
@@ -52,10 +52,10 @@ ALLOWED_SUMMARY_FIELDS = (
     "production_modified", "data_coverage_status",
 )
 UI = Path(__file__).resolve().parent / "ui"
-PROGRESS = Path("/opt/openserverdesk-dev/runtime-stage/progress/latest.json")
-PROGRESS_HISTORY = Path("/opt/openserverdesk-dev/runtime-stage/progress/history.jsonl")
-CUTOVER_PLAN = Path("/opt/openserverdesk-dev/runtime-stage/M1_CUTOVER_PLAN_PUBLIC.json")
-COMPOSE_COMPAT = Path("/opt/openserverdesk-dev/runtime-stage/M1_COMPOSE_COMPATIBILITY_PUBLIC.json")
+PROGRESS = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/progress/latest.json")
+PROGRESS_HISTORY = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/progress/history.jsonl")
+CUTOVER_PLAN = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/M1_CUTOVER_PLAN_PUBLIC.json")
+COMPOSE_COMPAT = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/M1_COMPOSE_COMPATIBILITY_PUBLIC.json")
 COMPOSE_COMPAT_FIELDS = {
     "schema_version", "scope", "checked_at_utc", "source_config_definitions",
     "valid_definitions", "invalid_definitions", "source_services",
@@ -487,7 +487,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(503, {"error": "cutover_plan_unavailable"})
         if self.path == "/api/v1/migration/topology":
             try:
-                report_path = Path("/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_TOPOLOGY_PREFLIGHT.json")
+                report_path = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/M1_PUBLIC_TOPOLOGY_PREFLIGHT.json")
                 if report_path.is_symlink() or report_path.stat().st_size > 8192:
                     raise ValueError("unsafe topology report")
                 data = json.loads(report_path.read_text())

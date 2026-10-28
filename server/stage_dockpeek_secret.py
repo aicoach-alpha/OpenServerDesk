@@ -14,7 +14,7 @@ from pathlib import Path
 from stage_apps import AppError
 from stage_host_socket import DOCKPEEK_ID,DOCKPEEK_SERVICE
 
-ROOT=Path("/opt/openserverdesk-dev/runtime-stage/stage-app-manager/store-compiled")
+ROOT=Path("/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/store-compiled")
 PROJECT=re.compile(r"osd-compiled-[0-9a-f]{12}\Z")
 KEY=re.compile(r"[0-9a-f]{64}\Z")
 FILENAME="dockpeek-staging-secret.json"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-BIN_DIR="${BIN_DIR:-/opt/openserverdesk-dev/bin}"
+BIN_DIR="${BIN_DIR:-/home/andre/projects/openserverdesk/operations/bin}"
 for component in CasaOS-Gateway CasaOS-UserService; do
   binary="$BIN_DIR/$component"
   test -s "$binary"

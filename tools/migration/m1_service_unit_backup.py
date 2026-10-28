@@ -24,7 +24,7 @@ NAMES = (
     'casaos-message-bus.service',
 )
 BASE = Path('/var/backups/openserverdesk-migration')
-STAGING = Path('/opt/openserverdesk-dev/runtime-stage')
+STAGING = Path('/home/andre/projects/openserverdesk/operations/runtime-stage')
 MANIFEST='unit-manifest.json'
 
 

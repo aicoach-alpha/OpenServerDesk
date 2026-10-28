@@ -19,10 +19,10 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-BASE=Path('/opt/openserverdesk-dev/releases')
+BASE=Path('/home/andre/projects/openserverdesk/operations/releases')
 PREVIOUS=BASE/'0.6.17'
 NEXT=BASE/'0.6.18'
-PACKAGE=Path('/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.18_amd64.deb')
+PACKAGE=Path('/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.18_amd64.deb')
 EXPECTED_SHA='178a772cca7da6cd25d91e357b51ba15dc47e51947973772cd8ec68ef527aaea'
 OVERRIDE=Path('/etc/systemd/system/openserverdesk-staging.service.d/30-osd-package-activation.conf')
 JOURNAL=BASE/'upgrade-0.6.18-pending.json'

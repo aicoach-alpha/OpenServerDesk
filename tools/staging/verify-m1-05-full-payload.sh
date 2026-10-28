@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One focused test for the newly completed FULL upstream component payload.
 set -euo pipefail
-PKG=/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb
-STAGE=/opt/openserverdesk-dev/runtime-stage
+PKG=/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.5.0_amd64.deb
+STAGE=/home/andre/projects/openserverdesk/operations/runtime-stage
 WORK=$(mktemp -d "$STAGE/full-payload-XXXXXX")
 CONTAINER="osd-m1-ui-$(basename "$WORK" | cut -d- -f3)"
 cleanup() {

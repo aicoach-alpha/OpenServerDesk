@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 CONFIG = Path("/var/lib/casaos/apps")
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 PUBLIC = STAGE / "M1_COMPOSE_COMPATIBILITY_PUBLIC.json"
 PRIVATE = STAGE / "M1_COMPOSE_COMPATIBILITY_PRIVATE.json"
 MAX_APPS = 100

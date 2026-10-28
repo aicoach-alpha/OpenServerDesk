@@ -12,12 +12,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASE=Path('/opt/openserverdesk-dev/build')
+BASE=Path('/home/andre/projects/openserverdesk/operations/build')
 VERSION='0.6.20'
 PACKAGE=BASE/f'openserverdesk-m1-candidate_{VERSION}_amd64.deb'
 DOC=BASE/f'OpenServerDesk-stage-{VERSION}.manifest.json'
 SIG=BASE/f'OpenServerDesk-stage-{VERSION}.manifest.sig'
-KEY=Path('/opt/openserverdesk-dev/signing/staging-ed25519-private.pem')
+KEY=Path('/home/andre/projects/openserverdesk/operations/signing/staging-ed25519-private.pem')
 PUBLIC=Path(__file__).resolve().parents[2]/'security/staging-ed25519-public.pem'
 SOURCE_SHA='ae3e563'
 

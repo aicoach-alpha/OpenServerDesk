@@ -19,14 +19,14 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
-PKG = Path('/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.7_amd64.deb')
+PKG = Path('/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.7_amd64.deb')
 EXPECTED_SHA = '48ce44ede018f7b2192700b753bc1190dcf337bf2bcc462448b66f4884c80531'
-RELEASE_BASE = Path('/opt/openserverdesk-dev/releases')
+RELEASE_BASE = Path('/home/andre/projects/openserverdesk/operations/releases')
 DEPLOY = RELEASE_BASE / '0.6.7'
 DROPIN = Path('/etc/systemd/system/openserverdesk-staging.service.d/30-osd-package-activation.conf')
 RECEIPT = RELEASE_BASE / 'openserverdesk-staging-v0.6.7-receipt.json'
 STAGE_UNIT = 'openserverdesk-staging.service'
-ORIGINAL_CMD = '/home/andre/openserverdesk/server/app.py'
+ORIGINAL_CMD = '/home/andre/projects/openserverdesk/main/server/app.py'
 PORT = 'http://127.0.0.1:18690'
 
 

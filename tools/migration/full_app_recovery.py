@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from volume_fixture import files, digest
 
-STAGING = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGING = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 PROJECT = re.compile(r"[a-z][a-z0-9-]{0,49}\Z")
 TOKEN = re.compile(r"[0-9a-f]{24}\Z")
 

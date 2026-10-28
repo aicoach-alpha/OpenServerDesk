@@ -11,9 +11,9 @@ import subprocess
 import tempfile
 
 REPO = Path(__file__).resolve().parents[2]
-BASE = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
-OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.49_amd64.deb")
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+BASE = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
+OUT = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.49_amd64.deb")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 
 def main():
     if not BASE.is_file():

@@ -6,8 +6,8 @@ import tempfile
 import time
 from pathlib import Path
 
-PACKAGE = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
-BASE = Path("/opt/openserverdesk-dev/runtime-stage")
+PACKAGE = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
+BASE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 
 
 def cmd(*args, timeout=30):

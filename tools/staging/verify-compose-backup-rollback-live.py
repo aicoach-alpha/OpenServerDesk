@@ -8,7 +8,7 @@ from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 
 BASE="http://127.0.0.1:18690"
-STAGE=Path("/opt/openserverdesk-dev/runtime-stage/stage-app-manager")
+STAGE=Path("/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager")
 TOKEN=(STAGE/"token").read_text().strip()
 
 

@@ -16,8 +16,8 @@ from pathlib import Path
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = Path("/opt/openserverdesk-dev/runtime-stage/progress")
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.26_amd64.deb")
+OUT = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/progress")
+PKG = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.26_amd64.deb")
 URL = "http://127.0.0.1:18690"
 
 # Explicitly frozen acceptance criteria/weights. Add new independently
@@ -122,7 +122,7 @@ def collect():
     # the actual backup and recovery on an SSD separate from source disk.
     # The user-disabled cron must NOT be re-enabled to update these metrics.
     proof_file = Path(
-        "/opt/openserverdesk-dev/runtime-stage/"
+        "/home/andre/projects/openserverdesk/operations/runtime-stage/"
         "M1_RELEASE_DECISION_CONFIG_SSD_20261016.json")
     try:
         attestation = json.loads(proof_file.read_text())
@@ -143,7 +143,7 @@ def collect():
     # does NOT alter the total 100% scope or accept production equivalence.
     try:
         proof = json.loads(Path(
-            "/opt/openserverdesk-dev/runtime-stage/"
+            "/home/andre/projects/openserverdesk/operations/runtime-stage/"
             "M1_STAGE_RUNTIME_ACCEPTANCE_V0626.json").read_text())
         from hashlib import sha256
         with PKG.open("rb") as stream:

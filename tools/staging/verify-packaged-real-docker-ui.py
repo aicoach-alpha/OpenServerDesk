@@ -12,8 +12,8 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-ROOT=Path("/opt/openserverdesk-dev/runtime-stage")
-PKG=Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.0_amd64.deb")
+ROOT=Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
+PKG=Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.0_amd64.deb")
 
 
 def verify():

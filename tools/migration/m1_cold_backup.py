@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from m1_app_data_inventory import collect
 
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 BACKUPS = STAGE / "cold-backups"
 RECOVERED = STAGE / "cold-recovery"
 MANIFEST = "manifest.json"

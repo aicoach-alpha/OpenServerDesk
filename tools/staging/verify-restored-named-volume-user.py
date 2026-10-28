@@ -12,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path("/opt/openserverdesk-dev")
+ROOT = Path("/home/andre/projects/openserverdesk/operations")
 STAGE = ROOT / "runtime-stage"
 PKG = ROOT / "build/openserverdesk-m1-candidate_0.3.0_amd64.deb"
 PREFIX = "osd-m1-fixture-"

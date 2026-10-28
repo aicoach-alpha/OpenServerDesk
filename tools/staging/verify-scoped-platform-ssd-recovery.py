@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "migration"))
 import m1_config_recovery as rec
 
-base = Path("/opt/openserverdesk-dev/runtime-stage")
+base = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 tag = secrets.token_hex(6)
 src = base / ("osd-fixture-source-" + tag)
 bak = base / ("config-only-fixture-" + tag)

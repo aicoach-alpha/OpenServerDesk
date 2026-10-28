@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-BASE = Path("/opt/openserverdesk-dev")
+BASE = Path("/home/andre/projects/openserverdesk/operations")
 PACKAGE = BASE / "build/openserverdesk-m1-candidate_0.3.0_amd64.deb"
 RUNTIME = BASE / "runtime-stage"
 GATEWAY = "osd-m1-gateway"

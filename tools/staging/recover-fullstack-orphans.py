@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 SUFFIXES = ("gw", "bus", "user")
 VOLUMES = ("us", "bs", "ub", "bb", "ur", "br")
 

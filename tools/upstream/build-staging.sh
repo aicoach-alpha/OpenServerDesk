@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-UPSTREAM_ROOT="${UPSTREAM_ROOT:-/opt/openserverdesk-dev/upstream}"
-CACHE="${GO_CACHE_ROOT:-/opt/openserverdesk-dev/go-cache}"
+UPSTREAM_ROOT="${UPSTREAM_ROOT:-/home/andre/projects/openserverdesk/operations/upstream}"
+CACHE="${GO_CACHE_ROOT:-/home/andre/projects/openserverdesk/operations/go-cache}"
 IMAGE="${GO_BUILD_IMAGE:-golang:1.26.8}"
 for module in CasaOS-Gateway CasaOS-UserService; do
   source_dir="$UPSTREAM_ROOT/$module"
