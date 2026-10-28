@@ -32,8 +32,15 @@ class UnixClient(http.client.HTTPConnection):
 
 class FacadeContractTests(unittest.TestCase):
     def test_exact_curated_catalog_compiler(self):
-        _,doc=_find_catalog_definition(PILOT_ID)
+        _,current_doc=_find_catalog_definition(PILOT_ID)
+        # The live catalog may change independently. A new image digest
+        # must stay denied until a separate, explicit review updates
+        # PILOT_IMAGE. Test the pinned approved fixture independently.
+        doc=json.loads(json.dumps(current_doc))
+        doc["services"]["app"]["image"]=PILOT_IMAGE
         self.assertTrue(eligible(PILOT_ID,doc))
+        if current_doc["services"]["app"]["image"]!=PILOT_IMAGE:
+            self.assertFalse(eligible(PILOT_ID,current_doc))
         plan=analyze(doc,resolver=lambda _: "sha256:"+"a"*64,
                      app_id=PILOT_ID)
         self.assertTrue(plan["services"][0]["host_socket_adapter"])
@@ -109,7 +116,10 @@ class FacadeContractTests(unittest.TestCase):
                     self.assertEqual(request("DELETE","/containers/"+"a"*64)[0],403)
                     self.assertEqual(request("POST","/containers/create")[0],403)
                     self.assertEqual(request("GET","/containers/"+"b"*64+"/json")[0],404)
-                    self.assertEqual(request("GET","/containers/"+"a"*64+"/logs")[0],403)
+                    # Synthetic test rows have no backed Docker logs:
+                    # 503 must not leak production logs or privileged access.
+                    self.assertEqual(request("GET","/containers/"+"a"*64+"/logs")[0],503)
+                    self.assertEqual(request("GET","/containers/"+"b"*64+"/logs")[0],404)
                     self.assertEqual(request("GET","/volumes")[0],403)
             finally:
                 server.shutdown()

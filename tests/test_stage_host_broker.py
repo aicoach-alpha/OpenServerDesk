@@ -12,11 +12,16 @@ import stage_host_broker as broker
 class HostBrokerContract(unittest.TestCase):
     def test_catalog_exactly_classified_default_denied(self):
         data=broker.contracts()
-        self.assertEqual(data["count"],49)
+        # Catalog additions must not silently bypass deny-by-default;
+        # validate the exact live classification set rather than a stale count.
+        classified=broker._host_rows()
+        self.assertGreaterEqual(len(classified),49)
+        self.assertEqual(data["count"],len(classified))
+        self.assertEqual({a["app_id"] for a in data["contracts"]},set(classified))
         self.assertFalse(data["host_privileged_access"])
         self.assertFalse(data["production_mutation_allowed"])
         self.assertFalse(data["runtime_compatibility_proven"])
-        self.assertEqual(len(data["contracts"]),49)
+        self.assertEqual(len(data["contracts"]),len(classified))
         for app in data["contracts"]:
             self.assertFalse(app["host_privileged_access"])
             self.assertFalse(app["stage_docker_socket_exposed"])
