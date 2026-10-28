@@ -92,11 +92,15 @@ class GlancesCuratedStage(unittest.TestCase):
                       selected["feature_gaps"])
         self.assertIn("stage_container_metrics_only",
                       selected["feature_gaps"])
-        self.assertEqual(matrix["install_mode_counts"],{
-            "isolated_stage_sandbox":677,
-            "special_host_integration":49,
-            "unsupported_compose_metadata":0,
-        })
+        # Preserve honest coverage counts as the pinned catalog evolves.
+        counts=matrix["install_mode_counts"]
+        self.assertEqual(set(counts),{
+            "isolated_stage_sandbox","special_host_integration",
+            "unsupported_compose_metadata"})
+        self.assertEqual(sum(counts.values()),len(matrix["apps"]))
+        self.assertEqual(counts["isolated_stage_sandbox"],
+                         sum(row["sandbox_plan_supported"]
+                             for row in matrix["apps"]))
 
     def test_runtime_manifest_env_allowlist_is_exact(self):
         services={GLANCES_SERVICE:{

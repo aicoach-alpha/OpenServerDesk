@@ -12,7 +12,7 @@ from pathlib import Path
 
 from m1_cold_backup import _paths_fresh
 
-STAGING = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGING = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 # Deliberately NEVER inspect /mnt/data or other external user data mounts.
 LOCAL_MOUNTS = (Path("/"), Path("/mnt/ssd-turbo"))
 

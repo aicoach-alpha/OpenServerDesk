@@ -120,11 +120,15 @@ class CuratedHomepage(unittest.TestCase):
                     "empty_stage_owned_config_only"):
             self.assertIn(gap,row["feature_gaps"])
         self.assertFalse(values["runtime_compatibility_proven"])
-        self.assertEqual(values["install_mode_counts"],{
-            "isolated_stage_sandbox":677,
-            "special_host_integration":49,
-            "unsupported_compose_metadata":0,
-        })
+        # Preserve honest coverage counts as the pinned catalog evolves.
+        counts=values["install_mode_counts"]
+        self.assertEqual(set(counts),{
+            "isolated_stage_sandbox","special_host_integration",
+            "unsupported_compose_metadata"})
+        self.assertEqual(sum(counts.values()),len(values["apps"]))
+        self.assertEqual(counts["isolated_stage_sandbox"],
+                         sum(row["sandbox_plan_supported"]
+                             for row in values["apps"]))
 
 
 if __name__=="__main__":

@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from m1_platform_scope import protected
 
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 OUTPUT = STAGE / "M1_PRIVATE_APP_DATA_INVENTORY.json"
 PUBLIC_SUMMARY = STAGE / "M1_PUBLIC_APP_DATA_SUMMARY.json"
 SUMMARY_FIELDS = (

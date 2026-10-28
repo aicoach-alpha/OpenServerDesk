@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT=/home/andre/openserverdesk
-BIN=/opt/openserverdesk-dev/bin
-OUT=/opt/openserverdesk-dev/build
+ROOT=/home/andre/projects/openserverdesk/main
+BIN=/home/andre/projects/openserverdesk/operations/bin
+OUT=/home/andre/projects/openserverdesk/operations/build
 VERSION=0.4.0
-STAGE=$(mktemp -d /opt/openserverdesk-dev/runtime-stage/m1-package-XXXXXX)
+STAGE=$(mktemp -d /home/andre/projects/openserverdesk/operations/runtime-stage/m1-package-XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/lib/openserverdesk/bin" "$STAGE/usr/lib/openserverdesk/server" "$STAGE/usr/lib/systemd/system" "$STAGE/usr/share/doc/openserverdesk-m1-candidate"
 cat > "$STAGE/DEBIAN/control" <<'EOF'

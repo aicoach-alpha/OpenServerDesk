@@ -15,10 +15,10 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-ASSETS = Path("/opt/openserverdesk-dev/vendor/m1-release-20261015")
-OUT = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
-BASE = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.4.0_amd64.deb")
-SCRATCH = Path("/opt/openserverdesk-dev/runtime-stage")
+ASSETS = Path("/home/andre/projects/openserverdesk/operations/vendor/m1-release-20261015")
+OUT = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
+BASE = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.4.0_amd64.deb")
+SCRATCH = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 MANIFEST = REPO / "tools/staging/m1-upstream-components.json"
 
 

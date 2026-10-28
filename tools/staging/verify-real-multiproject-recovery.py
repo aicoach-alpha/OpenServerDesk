@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "migration"))
 import full_app_recovery as recovery
 
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 
 
 def docker(*args, check=True):

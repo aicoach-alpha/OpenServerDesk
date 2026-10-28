@@ -13,8 +13,8 @@ import tempfile
 import time
 from pathlib import Path
 
-STAGE=Path("/opt/openserverdesk-dev/runtime-stage")
-PACKAGE=Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
+STAGE=Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
+PACKAGE=Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.5.0_amd64.deb")
 IMAGE="golang:1.26.8"
 
 

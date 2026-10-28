@@ -18,8 +18,8 @@ import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
-STAGE = Path('/opt/openserverdesk-dev/runtime-stage/stage-app-manager')
-MARKER = Path('/opt/openserverdesk-dev/runtime-stage/.enable-stage-app-manager')
+STAGE = Path('/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager')
+MARKER = Path('/home/andre/projects/openserverdesk/operations/runtime-stage/.enable-stage-app-manager')
 MARKER_TEXT = 'OSD_STAGE_APP_MANAGER_V1\n'
 STAGING_IMAGE = 'busybox:latest'
 STAGE_STORAGE = STAGE / 'files'

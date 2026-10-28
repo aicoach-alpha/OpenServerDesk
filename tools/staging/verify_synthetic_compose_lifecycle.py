@@ -20,7 +20,7 @@ sys.path.insert(0,str(ROOT/"tools"))
 from acceptance_m1_compose_compat import CONFIG,safe_project_config
 from synthetic_compose_rehearsal import synthetic
 
-STAGE=Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE=Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 PREFIX="osd-fixture-"
 
 

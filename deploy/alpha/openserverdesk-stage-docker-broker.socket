@@ -2,7 +2,7 @@
 Description=Stable stage Docker read-only facade Unix socket (Dozzle)
 
 [Socket]
-ListenStream=/opt/openserverdesk-dev/runtime-stage/stage-app-manager/host-broker/dozzle-stage-readonly.sock
+ListenStream=/home/andre/projects/openserverdesk/alpha/run/dozzle.sock
 SocketMode=0600
 DirectoryMode=0700
 Service=openserverdesk-stage-docker-broker.service

@@ -8,7 +8,7 @@ from pathlib import Path
 from stage_apps import AppError
 from stage_store_general import _find_catalog_definition
 
-ROOT=Path("/opt/openserverdesk-dev/runtime-stage/stage-app-manager/store-compiled")
+ROOT=Path("/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/store-compiled")
 APP="casaos.app:org.icewhale.qui"
 IMAGES={"qui":"ghcr.io/autobrr/qui:v1.28.0","postgres":"postgres:16-alpine"}
 PROJECT=re.compile(r"osd-compiled-[0-9a-f]{12}\Z")

@@ -17,9 +17,9 @@ from collections import defaultdict
 from pathlib import Path
 from m1_platform_scope import protected
 
-DEFAULT_INPUT=Path('/opt/openserverdesk-dev/runtime-stage/M1_PRIVATE_APP_DATA_INVENTORY.json')
-PRIVATE_OUT=Path('/opt/openserverdesk-dev/runtime-stage/M1_PRIVATE_TOPOLOGY_PREFLIGHT.json')
-PUBLIC_OUT=Path('/opt/openserverdesk-dev/runtime-stage/M1_PUBLIC_TOPOLOGY_PREFLIGHT.json')
+DEFAULT_INPUT=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/M1_PRIVATE_APP_DATA_INVENTORY.json')
+PRIVATE_OUT=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/M1_PRIVATE_TOPOLOGY_PREFLIGHT.json')
+PUBLIC_OUT=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/M1_PUBLIC_TOPOLOGY_PREFLIGHT.json')
 
 
 def inside(a,b):

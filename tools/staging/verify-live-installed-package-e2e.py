@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request,urlopen
 
-STAGE=Path('/opt/openserverdesk-dev/runtime-stage')
+STAGE=Path('/home/andre/projects/openserverdesk/operations/runtime-stage')
 BASE='http://127.0.0.1:18690'
 
 

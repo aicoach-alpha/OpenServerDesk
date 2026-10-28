@@ -14,7 +14,7 @@ import re
 import stat
 from pathlib import Path
 
-ROOT = Path("/opt/openserverdesk-dev/runtime-stage/stage-app-manager/store-compiled")
+ROOT = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/store-compiled")
 PROJECT = re.compile(r"osd-compiled-[a-f0-9]{12}\Z")
 REGISTRY = ROOT / "registry.json"
 ALLOWED_FILES = ("compose.json", "previous.json", "previous-data.json")

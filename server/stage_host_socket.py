@@ -43,8 +43,8 @@ APPROVED_PILOTS={
 }
 LABEL="osd.m1.compiled.broker"
 LABEL_VALUE="stage-docker-readonly-v1"
-SOCKET_ROOT=Path("/opt/openserverdesk-dev/runtime-stage/stage-app-manager/host-broker")
-SOCKET_PATH=SOCKET_ROOT/"dozzle-stage-readonly.sock"
+SOCKET_ROOT=Path("/home/andre/projects/openserverdesk/alpha/run")
+SOCKET_PATH=SOCKET_ROOT/"dozzle.sock"
 TARGET="/var/run/docker.sock"
 ADAPTER="docker_stage_metadata_readonly_v1"
 

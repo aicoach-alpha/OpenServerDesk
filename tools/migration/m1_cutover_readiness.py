@@ -20,7 +20,7 @@ from m1_config_recovery import BACKUP_ROOT, sha, verify, verify_tree
 from m1_platform_scope import protected, select
 from m1_service_unit_backup import NAMES, inventory as service_inventory
 
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 LIVE_BACKUP_RECORD = STAGE / "M1_CONFIG_ONLY_SSD_BACKUP_LIVE_20261016.json"
 PRIVATE = STAGE / "M1_CUTOVER_PLAN_PRIVATE.json"
 PUBLIC = STAGE / "M1_CUTOVER_PLAN_PUBLIC.json"

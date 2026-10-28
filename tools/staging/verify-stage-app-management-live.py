@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 URL='http://127.0.0.1:18690/api/v1/stage/apps'
-TOKEN=Path('/opt/openserverdesk-dev/runtime-stage/stage-app-manager/token').read_text().strip()
+TOKEN=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/token').read_text().strip()
 
 
 def docker_ids():

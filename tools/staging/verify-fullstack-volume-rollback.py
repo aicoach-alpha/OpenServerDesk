@@ -25,8 +25,8 @@ recovery_module = importlib.util.module_from_spec(recovery_spec)
 recovery_spec.loader.exec_module(recovery_module)
 recover = recovery_module.recover
 
-STAGE = Path("/opt/openserverdesk-dev/runtime-stage")
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
+STAGE = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
+PKG = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.3.0_amd64.deb")
 IMAGE = "golang:1.26.8"
 BUSYBOX = "busybox:latest"
 

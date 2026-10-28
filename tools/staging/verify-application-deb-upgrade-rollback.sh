@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One focused gate: real APPLICATION packages 0.3 -> 0.4 -> 0.3, disposable dpkg root only.
 set -euo pipefail
-PKG=/opt/openserverdesk-dev/build
-RUNTIME=/opt/openserverdesk-dev/runtime-stage
+PKG=/home/andre/projects/openserverdesk/operations/build
+RUNTIME=/home/andre/projects/openserverdesk/operations/runtime-stage
 OLD="$PKG/openserverdesk-m1-candidate_0.3.0_amd64.deb"
 NEW="$PKG/openserverdesk-m1-candidate_0.4.0_amd64.deb"
 test -f "$OLD" && test -f "$NEW"

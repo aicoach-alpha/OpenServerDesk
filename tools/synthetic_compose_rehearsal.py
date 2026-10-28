@@ -17,7 +17,7 @@ from pathlib import Path
 from acceptance_m1_compose_compat import CONFIG, safe_project_config
 from compose_semantics import assess_config, isolated_deployment_plan
 
-OUTPUT_ROOT = Path("/opt/openserverdesk-dev/runtime-stage")
+OUTPUT_ROOT = Path("/home/andre/projects/openserverdesk/operations/runtime-stage")
 SERVICE_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}\Z")
 
 

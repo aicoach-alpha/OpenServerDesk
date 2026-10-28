@@ -7,8 +7,8 @@ from pathlib import Path
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
 
-root=Path('/opt/openserverdesk-dev/runtime-stage/stage-app-manager/files')
-token=Path('/opt/openserverdesk-dev/runtime-stage/stage-app-manager/token').read_text().strip()
+root=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/files')
+token=Path('/home/andre/projects/openserverdesk/operations/runtime-stage/stage-app-manager/token').read_text().strip()
 url='http://127.0.0.1:18690/api/v1/stage/files'
 name='roundtrip-'+secrets.token_hex(5)+'.txt'
 

@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "tools/staging/m1-upstream-components.json"
-DESTINATION = Path("/opt/openserverdesk-dev/vendor/m1-release-20261015")
+DESTINATION = Path("/home/andre/projects/openserverdesk/operations/vendor/m1-release-20261015")
 
 
 def digest(path):

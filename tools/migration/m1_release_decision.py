@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = Path("/opt/openserverdesk-dev/build/openserverdesk-m1-candidate_0.6.51_amd64.deb")
+PKG = Path("/home/andre/projects/openserverdesk/operations/build/openserverdesk-m1-candidate_0.6.51_amd64.deb")
 CORE = ["casaos", "casaos-gateway", "casaos-user-service", "casaos-app-management",
         "casaos-local-storage", "casaos-message-bus"]
 
@@ -71,7 +71,7 @@ def decide():
             "Migration installer explicitly reports activation/rollback not implemented."
         )
     try:
-        parity_path=Path("/opt/openserverdesk-dev/runtime-stage/M1_COMPOSE_COMPATIBILITY_PUBLIC.json")
+        parity_path=Path("/home/andre/projects/openserverdesk/operations/runtime-stage/M1_COMPOSE_COMPATIBILITY_PUBLIC.json")
         if parity_path.is_symlink() or parity_path.stat().st_size > 8192:
             raise ValueError("unsafe Compose parity assessment")
         parity=json.loads(parity_path.read_text())
@@ -109,10 +109,10 @@ def decide():
         from m1_platform_scope import select as select_platform
         storage = inspect_storage(Path("/mnt/ssd-turbo"))
         backup_record = json.loads(Path(
-            "/opt/openserverdesk-dev/runtime-stage/"
+            "/home/andre/projects/openserverdesk/operations/runtime-stage/"
             "M1_CONFIG_ONLY_SSD_BACKUP_LIVE_20261016.json").read_text())
         restore_record = json.loads(Path(
-            "/opt/openserverdesk-dev/runtime-stage/"
+            "/home/andre/projects/openserverdesk/operations/runtime-stage/"
             "M1_CONFIG_ONLY_SSD_RESTORE_LIVE_20261016.json").read_text())
         backup_id = backup_record["backup_id"]
         manifest, actual = verify(backup_id)

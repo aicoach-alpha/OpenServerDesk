@@ -11,7 +11,7 @@ import stat
 from pathlib import Path
 
 SOCKET = Path("/var/run/docker.sock")
-STAGING_OPT_IN = Path("/opt/openserverdesk-dev/runtime-stage/.enable-docker-inventory")
+STAGING_OPT_IN = Path("/home/andre/projects/openserverdesk/operations/runtime-stage/.enable-docker-inventory")
 STAGING_OPT_IN_CONTENT = "OSD_STAGING_DOCKER_INVENTORY_V1\n"
 
 def _inventory_opted_in():
